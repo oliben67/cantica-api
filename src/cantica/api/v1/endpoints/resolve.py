@@ -1,3 +1,28 @@
+"""
+FastAPI endpoint for resolving a ``cantica://`` URI to a concrete version.
+
+Tag: ``resolve``
+
+Endpoint
+--------
+``POST /v1/resolve``
+    Resolve a ``cantica://`` URI and return the full ``VersionResponse``.
+    Body: ``ResolveRequest`` (``uri``, optional ``remote_url``).
+
+    URI forms accepted (via ``parse_address``):
+    - ``cantica://namespace/name``          → local vault, latest
+    - ``cantica://namespace/name@ref``      → local vault at ref
+    - ``cantica://host/namespace/name@ref`` → fetch from remote host (HTTP GET)
+
+    When the URI includes a host component, the ``remote_url`` field can
+    override the derived host URL (useful behind proxies).
+
+    Error mapping:
+    - HTTP 422 — malformed URI (``ValueError``)
+    - HTTP 404 — prompt or ref not found (``KeyError``)
+    - HTTP 502 — upstream remote unreachable (``ConnectionError``)
+"""
+
 # Future imports (must occur at the beginning of the file):
 from __future__ import annotations
 
@@ -18,6 +43,7 @@ def resolve_uri(
     store: StoreDep,
     _user: UserDep,
 ) -> VersionResponse:
+    """Resolve a cantica:// URI and return the matching version."""
     try:
         version = store.resolve_uri(body.uri, body.remote_url)
     except ValueError as exc:

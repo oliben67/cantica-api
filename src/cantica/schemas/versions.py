@@ -1,3 +1,17 @@
+"""
+Pydantic request/response schemas for version endpoints.
+
+``VersionCreate``   — body schema for ``POST /v1/prompts/{ns}/{name}/versions``.
+                      When ``sha`` + ``created_at`` are both provided the server
+                      uses ``import_version()`` to preserve the exact SHA (used
+                      by push/pull sync).  Otherwise the server computes the SHA.
+
+``VersionResponse`` — response schema returned by all version endpoints; mirrors
+                      the ``Version`` domain model fields, including ``content``
+                      (the full prompt text), ``tags`` (names of tags pointing at
+                      this SHA), and the full commit metadata.
+"""
+
 # Future imports (must occur at the beginning of the file):
 from __future__ import annotations
 
@@ -12,6 +26,8 @@ from cantica.models import VariableSchema
 
 
 class VersionCreate(BaseModel):
+    """Request body for committing a new version or importing an existing one."""
+
     content: str
     message: str
     author: str
@@ -25,6 +41,8 @@ class VersionCreate(BaseModel):
 
 
 class VersionResponse(BaseModel):
+    """Version record returned by all version endpoints."""
+
     sha: str
     prompt_id: str
     branch: str
