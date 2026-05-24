@@ -1,7 +1,7 @@
 # Cantica API — Developer Manual
 
-> **Base URL:** `http://localhost:8042`  
-> **API prefix:** `/v1`  
+> **Base URL:** `http://localhost:8042`
+> **API prefix:** `/v1`
 > **Interactive docs:** [`/docs`](http://localhost:8042/docs) (Swagger UI) · [`/redoc`](http://localhost:8042/redoc) (ReDoc)
 
 ---
@@ -386,7 +386,7 @@ Create a new prompt. The `namespace/name` combination must be unique.
 | `visibility` | ❌ | `"public"` |
 | `variables` | ❌ | `[]` |
 
-**Response `201`** — `PromptResponse`  
+**Response `201`** — `PromptResponse`
 **Response `409`** — Prompt already exists
 
 ---
@@ -402,7 +402,7 @@ Retrieve a single prompt by its slug.
 | `namespace` | Owner namespace |
 | `name` | Prompt name |
 
-**Response `200`** — `PromptResponse`  
+**Response `200`** — `PromptResponse`
 **Response `404`** — Prompt not found
 
 ---
@@ -411,7 +411,7 @@ Retrieve a single prompt by its slug.
 
 Permanently delete a prompt and all its versions, branches, tags, stars, comments, and forks.
 
-**Response `204`** — Deleted  
+**Response `204`** — Deleted
 **Response `404`** — Prompt not found
 
 ---
@@ -489,8 +489,8 @@ Commit a new version of the prompt. Advances the branch HEAD.
 
 > **Import mode:** When `sha`, `parent_sha`, and `created_at` are all provided, the server calls `import_version()` instead of `commit()`, preserving the exact SHA. Useful for migrating prompts between Cantica instances without rewriting history. Returns `409` if the SHA already exists.
 
-**Response `201`** — `VersionResponse`  
-**Response `404`** — Prompt not found  
+**Response `201`** — `VersionResponse`
+**Response `404`** — Prompt not found
 **Response `409`** — SHA conflict (import mode only)
 
 ---
@@ -507,7 +507,7 @@ Retrieve a specific version by ref. A ref can be:
 | Abbreviated SHA | `a3f1d2` | Version with matching SHA prefix |
 | `latest` | `latest` | HEAD of `main` |
 
-**Response `200`** — `VersionResponse`  
+**Response `200`** — `VersionResponse`
 **Response `404`** — Ref not found
 
 ---
@@ -569,7 +569,7 @@ Create a new branch starting from a specific commit SHA.
 | `name` | ✅ | New branch name |
 | `from_sha` | ✅ | SHA to branch from |
 
-**Response `201`** — `BranchResponse`  
+**Response `201`** — `BranchResponse`
 **Response `404`** — Prompt or SHA not found
 
 ---
@@ -592,7 +592,7 @@ Roll a branch back to any previous ref. Creates a new commit that restores the c
 | `ref` | ✅ | — | Target ref to restore (tag, SHA, branch name) |
 | `branch` | ❌ | `"main"` | Branch to roll back |
 
-**Response `200`** — `VersionResponse` (the new rollback commit)  
+**Response `200`** — `VersionResponse` (the new rollback commit)
 **Response `404`** — Ref not found
 
 ---
@@ -615,8 +615,8 @@ Merge one branch into another. Takes the HEAD content of `from_branch` and commi
 | `from_branch` | ✅ | — | Source branch |
 | `into_branch` | ❌ | `"main"` | Target branch |
 
-**Response `200`** — `MergeResponse` (a `VersionResponse` for the new merge commit)  
-**Response `404`** — Branch or prompt not found  
+**Response `200`** — `MergeResponse` (a `VersionResponse` for the new merge commit)
+**Response `404`** — Branch or prompt not found
 **Response `409`** — Nothing to merge (branches already at same HEAD)
 
 ---
@@ -664,7 +664,7 @@ Create a new tag pointing to a specific SHA.
 | `name` | ✅ | Tag name |
 | `sha` | ✅ | Version SHA to tag |
 
-**Response `201`** — `TagResponse`  
+**Response `201`** — `TagResponse`
 **Response `404`** — Prompt or SHA not found
 
 ---
@@ -712,7 +712,7 @@ Fork a prompt into a new slug.
 }
 ```
 
-**Response `404`** — Source prompt not found  
+**Response `404`** — Source prompt not found
 **Response `409`** — Destination slug already exists
 
 ---
@@ -721,7 +721,7 @@ Fork a prompt into a new slug.
 
 List all known forks of a prompt.
 
-**Response `200`** — `ForkResponse[]`  
+**Response `200`** — `ForkResponse[]`
 **Response `404`** — Prompt not found
 
 ---
@@ -792,7 +792,7 @@ Star a prompt. The acting user's ID is taken from the auth context (or `"local"`
 
 Remove a star from a prompt.
 
-**Response `204`** — Unstarred  
+**Response `204`** — Unstarred
 **Response `404`** — Prompt not found or not starred
 
 ---
@@ -801,7 +801,7 @@ Remove a star from a prompt.
 
 List all stargazers for a prompt.
 
-**Response `200`** — `StarResponse[]`  
+**Response `200`** — `StarResponse[]`
 **Response `404`** — Prompt not found
 
 ---
@@ -857,7 +857,7 @@ List comments on a prompt, optionally filtered to a specific version.
 |---|---|---|
 | `version_sha` | `string` | Only return comments pinned to this SHA |
 
-**Response `200`** — `CommentResponse[]`  
+**Response `200`** — `CommentResponse[]`
 **Response `404`** — Prompt not found
 
 ---
@@ -896,7 +896,7 @@ Create a new collection.
 | `name` | ✅ | — | Collection name (unique per namespace) |
 | `description` | ❌ | `""` | Human-readable description |
 
-**Response `201`** — `CollectionResponse`  
+**Response `201`** — `CollectionResponse`
 **Response `409`** — Collection name already exists in this namespace
 
 ---
@@ -955,7 +955,7 @@ Get a collection with its full list of member prompts.
 
 Delete a collection. Member prompts are not affected.
 
-**Response `204`** — Deleted  
+**Response `204`** — Deleted
 **Response `404`** — Collection not found
 
 ---
@@ -972,7 +972,7 @@ Add a prompt to a collection by its slug.
 }
 ```
 
-**Response `204`** — Added  
+**Response `204`** — Added
 **Response `404`** — Collection or prompt not found
 
 ---
@@ -981,7 +981,7 @@ Add a prompt to a collection by its slug.
 
 Remove a prompt from a collection.
 
-**Response `204`** — Removed  
+**Response `204`** — Removed
 **Response `404`** — Collection or prompt not found
 
 ---
@@ -1032,7 +1032,7 @@ Render resolves a prompt at a specific ref and fills in all `{{variable}}` place
 }
 ```
 
-**Response `404`** — Prompt or ref not found  
+**Response `404`** — Prompt or ref not found
 **Response `422`** — Missing required variable or invalid slug format
 
 ---
@@ -1068,9 +1068,9 @@ cantica://  {namespace} / {name} @ {ref}
             osteck         my-prompt       abc123f
 ```
 
-**Response `200`** — `VersionResponse`  
-**Response `404`** — Prompt or ref not found  
-**Response `422`** — Malformed URI  
+**Response `200`** — `VersionResponse`
+**Response `404`** — Prompt or ref not found
+**Response `422`** — Malformed URI
 **Response `502`** — Remote unreachable (when `remote_url` is set)
 
 ---
@@ -1149,7 +1149,7 @@ List all registered webhooks.
 
 Delete a webhook by its ID.
 
-**Response `204`** — Deleted  
+**Response `204`** — Deleted
 **Response `404`** — Webhook not found
 
 ---
@@ -1208,7 +1208,7 @@ List all tokens. Raw keys are never returned.
 
 Revoke a token by its ID. The token is immediately invalid.
 
-**Response `204`** — Revoked  
+**Response `204`** — Revoked
 **Response `404`** — Token not found
 
 ---

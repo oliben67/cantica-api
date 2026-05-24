@@ -1,3 +1,40 @@
+"""
+Typer-based command-line interface for Cantica.
+
+The ``cantica`` CLI exposes the full feature set of the prompt registry as
+terminal commands.  Each command maps directly to one or more ``VersionStore``
+methods, keeping the CLI thin (input parsing, output formatting) with no
+business logic of its own.
+
+Commands
+--------
+serve           Start the Uvicorn development server.
+
+new             Create a new prompt in the local vault.
+commit          Save a new version; content from ``--file`` or stdin.
+show            Display a prompt at an optional ref (default: latest).
+log             Print the version history for a branch.
+diff            Show a unified diff between two refs.
+render          Render prompt content with ``{{variable}}`` substitution.
+tag             Attach a named tag to a specific version SHA.
+branch          List existing branches or create a new one.
+fork            Deep-copy a prompt to a new namespace/name, preserving history.
+rollback        Reset a branch head to a past ref.
+merge           Fast-forward merge one branch into another.
+push            Push a prompt and its history to a remote Cantica instance.
+pull            Pull a prompt and its history from a remote Cantica instance.
+list            List prompts, with optional filters (namespace, tag, model, visibility).
+search          Full-text search across names, descriptions, tags, and model hints.
+star / unstar   Star or remove a star from a prompt.
+comment         Post a comment, optionally pinned to a specific version SHA.
+collections     List collections in the local vault.
+lock            Resolve ``cantica://`` URIs to exact SHAs and write a TOML lock file.
+install         Fetch all versions pinned in a ``cantica.lock`` file into the local vault.
+
+All commands accept ``--vault <path>`` to override the default vault location
+(``CANTICA_VAULT_PATH`` or ``~/.cantica/vault``).
+"""
+
 # Future imports (must occur at the beginning of the file):
 from __future__ import annotations
 
@@ -22,6 +59,7 @@ from cantica.services.version_store import VersionStore
 
 
 def _stdin_is_tty() -> bool:
+    """Return ``True`` when stdin is an interactive terminal."""
     return sys.stdin.isatty()
 
 
@@ -33,6 +71,7 @@ app = typer.Typer(
 
 
 def _store(vault: Path | None = None) -> VersionStore:
+    """Open and return a ``VersionStore`` for the given (or default) vault path."""
     path = vault or get_settings().vault_path
     path.mkdir(parents=True, exist_ok=True)
     return VersionStore(path)
@@ -395,6 +434,9 @@ def push(
     slug: Annotated[str, typer.Argument(help="namespace/name")],
     remote: str = typer.Option("", "--remote", "-r", help="Remote Cantica base URL"),
     api_key: str | None = typer.Option(None, "--api-key", help="Remote API key"),
+    certificate: str | None = typer.Option(
+        None, "--certificate", "-c", help="Certificate token for proprietary remote namespace"
+    ),
     branch: str = typer.Option("main", "-b", "--branch"),
     vault: Path | None = typer.Option(None, "--vault"),
 ) -> None:
@@ -416,6 +458,8 @@ def push(
     tags = store.list_tags(prompt.id)
 
     headers: dict[str, str] = {"X-API-Key": api_key} if api_key else {}
+    if certificate:
+        headers["X-Cantica-Certificate"] = certificate
     with httpx.Client(base_url=remote_url, headers=headers, timeout=30.0) as client:
         r = client.get(f"/v1/prompts/{addr.namespace}/{addr.name}")
         if r.status_code == 404:
@@ -490,6 +534,9 @@ def pull(
     slug: Annotated[str, typer.Argument(help="namespace/name")],
     remote: str = typer.Option("", "--remote", "-r", help="Remote Cantica base URL"),
     api_key: str | None = typer.Option(None, "--api-key", help="Remote API key"),
+    certificate: str | None = typer.Option(
+        None, "--certificate", "-c", help="Certificate token for proprietary remote namespace"
+    ),
     branch: str = typer.Option("main", "-b", "--branch"),
     vault: Path | None = typer.Option(None, "--vault"),
 ) -> None:
@@ -503,6 +550,8 @@ def pull(
         raise typer.Exit(1)
 
     headers: dict[str, str] = {"X-API-Key": api_key} if api_key else {}
+    if certificate:
+        headers["X-Cantica-Certificate"] = certificate
     with httpx.Client(base_url=remote_url, headers=headers, timeout=30.0) as client:
         r = client.get(f"/v1/prompts/{addr.namespace}/{addr.name}")
         if r.status_code == 404:

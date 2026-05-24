@@ -1,3 +1,5 @@
-h1:aHL02qPAoJ7bV9gkwXLLXx8Oh3qex8grJJoAntIt3yw=
+h1:ur9M/Wdtx2zIbP41Xhye5I7InmVoAS77opvz5wJo1jI=
 20260523203331_initial_schema.sql h1:w4vRsG6/VqJbWku6Vuu1iOV+e6Q1pu9kQaFiDoYPT80=
 20260524092718_add_community_tables.sql h1:lZ8MpddMQ7odcwICjJgZ5I9l1/J/TDnkzrpBWWIow50=
+20260524120000_add_webhooks.sql h1:NW+w/kIC248hmLzODZb5hWRBEmyDl8EGSJ6BKjBuH30=
+20260524193852_add_namespace_access_control.sql h1:3FQ0BMvb5OeU2SHLjNiZWhjzfQWlN4jtrnQF6b6nFXc=

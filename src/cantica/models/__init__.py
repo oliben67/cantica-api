@@ -1,3 +1,8 @@
+"""
+Domain models package.  Re-exports every model class from ``cantica.models.prompt``
+so callers can use ``from cantica.models import Prompt, Version, ...``.
+"""
+
 # Future imports (must occur at the beginning of the file):
 from __future__ import annotations
 
@@ -7,6 +12,7 @@ from .prompt import (
     Comment,
     Fork,
     Namespace,
+    NamespaceCert,
     Prompt,
     Star,
     Tag,
@@ -22,6 +28,7 @@ __all__ = [
     "Comment",
     "Fork",
     "Namespace",
+    "NamespaceCert",
     "Prompt",
     "Star",
     "Tag",

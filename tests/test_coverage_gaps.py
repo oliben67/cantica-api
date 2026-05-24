@@ -135,8 +135,8 @@ def test_resolve_ambiguous_prefix_raises(store: VersionStore) -> None:
     store.session.execute(
         text(
             """INSERT INTO versions(sha, prompt_id, branch, message, author,
-               content_sha, variables, created_at)
-               VALUES(:sha,:prompt_id,:branch,:message,:author,:content_sha,:variables,:created_at)"""
+               content_sha, is_encoded, variables, created_at)
+               VALUES(:sha,:prompt_id,:branch,:message,:author,:content_sha,:is_encoded,:variables,:created_at)"""
         ),
         {
             "sha": fake_sha,
@@ -145,6 +145,7 @@ def test_resolve_ambiguous_prefix_raises(store: VersionStore) -> None:
             "message": "fake",
             "author": "fake",
             "content_sha": v1.sha,
+            "is_encoded": 0,
             "variables": "[]",
             "created_at": "2026-01-01T00:00:00+00:00",
         },

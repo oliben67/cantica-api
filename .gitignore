@@ -14,3 +14,6 @@ atlas-dev.db
 
 # Copilot session logs (local only)
 .copilot/
+
+# VS Code settings and workspace files
+.vscode/

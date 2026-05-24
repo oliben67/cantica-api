@@ -1,3 +1,28 @@
+"""
+Top-level v1 API router: aggregates all endpoint sub-routers.
+
+``router`` is a plain ``APIRouter`` that collects every feature router defined
+under ``api/v1/endpoints/``.  It is mounted at ``/v1`` by the application
+factory in ``main.py``.
+
+Included routers (in registration order):
+- ``prompts``     — prompt CRUD (``/v1/prompts``)
+- ``versions``    — commit and retrieve versions (``/v1/prompts/{ns}/{name}/versions``)
+- ``tags``        — tag management (``/v1/prompts/{ns}/{name}/tags``)
+- ``branches``    — branch create / list / rollback / merge
+- ``forks``       — fork and list forks
+- ``stars``       — star / unstar / list stargazers
+- ``comments``    — add / list / delete comments
+- ``collections`` — collection CRUD + item management (``/v1/collections``)
+- ``diff``        — unified diff between two refs
+- ``render``      — render prompt with variable substitution (``/v1/render``)
+- ``resolve``     — resolve a ``cantica://`` URI to a version (``/v1/resolve``)
+- ``hooks``       — webhook CRUD (``/v1/hooks``)
+- ``auth``        — API token management (``/v1/tokens``)
+- ``push``        — NDJSON streaming push ingestion (``/v1/push``)
+- ``namespaces``  — namespace CRUD + certificate management (``/v1/namespaces``)
+"""
+
 # Future imports (must occur at the beginning of the file):
 from __future__ import annotations
 
@@ -13,7 +38,9 @@ from cantica.api.v1.endpoints import (
     diff,
     forks,
     hooks,
+    namespaces,
     prompts,
+    push,
     render,
     resolve,
     stars,
@@ -36,3 +63,5 @@ router.include_router(render.router)
 router.include_router(resolve.router)
 router.include_router(hooks.router)
 router.include_router(auth.router)
+router.include_router(push.router)
+router.include_router(namespaces.router)

@@ -1,3 +1,80 @@
+"""
+Core data-access service for the Cantica prompt registry.
+
+``VersionStore`` is the single authoritative interface for every read and write
+operation in the system.  Both the FastAPI endpoints (via ``api/deps.py``) and
+the Typer CLI (``cli.py``) talk exclusively through this class — no layer above
+``VersionStore`` ever accesses the ORM or BlobStore directly.
+
+Responsibilities
+----------------
+Namespace management   ``create_namespace``, ``get_namespace``
+
+Prompt CRUD            ``create_prompt``, ``get_prompt``, ``list_prompts``,
+                       ``search_prompts`` (FTS5 / tsvector), ``delete_prompt``
+
+Version commits        ``commit`` — writes content to ``BlobStore``, computes a
+                       git-style commit SHA, upserts the branch head, fires webhooks.
+                       ``import_version`` — idempotent import with a pre-computed
+                       SHA for cross-instance push/pull sync.
+                       ``get_version``, ``log``, ``has_version``
+
+Tags                   ``create_tag`` (upsert), ``get_tag``, ``list_tags``
+
+Branches               ``create_branch``, ``get_branch``, ``list_branches``
+
+Ref resolution         ``resolve(namespace, name, ref)`` — resolves a ref string
+                       through the priority chain: "latest"/default-branch →
+                       named tag → named branch → exact SHA → SHA prefix.
+
+Diffs                  ``diff(sha1, sha2)`` — unified diff via ``difflib``.
+
+Fork                   ``fork`` — deep-copies all versions and tags from a source
+                       prompt to a new destination, remapping SHAs and recording
+                       lineage in ``forks``.
+
+Rollback / Merge       ``rollback`` — resets a branch head to any past ref.
+                       ``merge`` — fast-forward merge only; raises ``ValueError``
+                       when histories have diverged.
+
+Stars                  ``star_prompt``, ``unstar_prompt``, ``list_stargazers``
+
+Comments               ``add_comment``, ``list_comments``, ``delete_comment``
+
+Collections            ``create_collection``, ``get_collection``,
+                       ``list_collections``, ``delete_collection``,
+                       ``add_to_collection``, ``remove_from_collection``,
+                       ``list_collection_items``
+
+Webhooks               ``create_webhook``, ``list_webhooks``, ``delete_webhook``,
+                       ``fire_webhooks`` — HMAC-signed POST delivery (best-effort).
+
+API keys               ``create_api_key``, ``list_api_keys``, ``revoke_api_key``,
+                       ``verify_api_key``
+
+URI resolution         ``resolve_uri`` — resolves ``cantica://[host/]ns/name[@ref]``
+                       against the local vault or a remote HTTP instance.
+
+Lifecycle
+---------
+Always call ``store.close()`` when done to dispose the connection pool.  In
+tests use ``yield store`` + ``store.close()`` teardown to avoid
+``ResourceWarning: unclosed database``.
+
+SHA computation
+---------------
+The commit SHA is ``sha256("commit\\n<content_sha>\\n<parent_sha>\\n<author>
+\\n<message>\\n<created_at_iso>")``, matching a git-style commit object.  This
+makes SHAs unique per commit even when two commits have identical content.
+
+Storage split
+-------------
+Prompt metadata lives in SQLite.  Prompt *content* lives in the ``BlobStore``
+under ``<vault>/objects/<2-char prefix>/<remaining SHA-256>``.  The
+``VersionOrm.content_sha`` column links the two; content is deduplicated by
+hash and never stored in the database.
+"""
+
 # Future imports (must occur at the beginning of the file):
 from __future__ import annotations
 
@@ -17,6 +94,7 @@ from sqlalchemy import delete, select, text, update
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 
 # Local imports:
+from cantica.core.certificates import CertPayload, generate_token, verify_token
 from cantica.core.resolver import parse_address
 from cantica.database import open_session
 from cantica.models import (
@@ -25,6 +103,7 @@ from cantica.models import (
     Comment,
     Fork,
     Namespace,
+    NamespaceCert,
     Prompt,
     Star,
     Tag,
@@ -40,6 +119,8 @@ from cantica.orm.tables import (
     CollectionOrm,
     CommentOrm,
     ForkOrm,
+    InstanceConfigOrm,
+    NamespaceCertOrm,
     NamespaceOrm,
     PromptOrm,
     StarOrm,
@@ -53,14 +134,17 @@ _log = logging.getLogger(__name__)
 
 
 def _utcnow() -> datetime:
+    """Return the current UTC time as an aware datetime."""
     return datetime.now(UTC)
 
 
 def _iso(dt: datetime) -> str:
+    """Serialise *dt* to an ISO 8601 string for storage in varchar columns."""
     return dt.isoformat()
 
 
 def _from_iso(s: str) -> datetime:
+    """Deserialise an ISO 8601 string back to a ``datetime``."""
     return datetime.fromisoformat(s)
 
 
@@ -71,15 +155,18 @@ def _commit_sha(
     message: str,
     created_at: datetime,
 ) -> str:
+    """Compute a git-style commit SHA from the structured commit fields."""
     data = f"commit\n{content_sha}\n{parent_sha or ''}\n{author}\n{message}\n{_iso(created_at)}"
     return hashlib.sha256(data.encode()).hexdigest()
 
 
 def _load_variables(raw: str) -> list[VariableSchema]:
+    """Deserialise a JSON-encoded list of variable schema dicts."""
     return [VariableSchema(**v) for v in json.loads(raw)]
 
 
 def _orm_to_prompt(row: PromptOrm) -> Prompt:
+    """Convert a ``PromptOrm`` row to a ``Prompt`` Pydantic model."""
     return Prompt(
         id=row.id,
         namespace=row.namespace,
@@ -108,6 +195,7 @@ class VersionStore:
         create_tables: bool = True,
         database_url: str | None = None,
     ) -> None:
+        """Open (or create) the vault at *root*, initialising the blob store and DB session."""
         self.root = root
         self.root.mkdir(parents=True, exist_ok=True)
         self.blobs = BlobStore(root / "objects")
@@ -116,13 +204,16 @@ class VersionStore:
 
     @property
     def _dialect(self) -> str:
+        """Return the SQLAlchemy dialect name (e.g. ``'sqlite'`` or ``'postgresql'``)."""
         return self._engine.dialect.name
 
     def close(self) -> None:
+        """Close the session and dispose the connection pool."""
         self.session.close()
         self._engine.dispose()
 
     def __del__(self) -> None:
+        """Best-effort cleanup; swallows errors to avoid noise during GC."""
         try:
             self.close()
         except Exception:  # pragma: no cover
@@ -132,25 +223,210 @@ class VersionStore:
     # Namespaces                                                           #
     # ------------------------------------------------------------------ #
 
-    def create_namespace(self, name: str, description: str = "") -> Namespace:
-        ns = Namespace(name=name, description=description)
+    # ------------------------------------------------------------------ #
+    # Instance config helpers                                              #
+    # ------------------------------------------------------------------ #
+
+    def _get_instance_secret(self) -> str:
+        """Return the instance-level certificate secret stored in ``instance_config``."""
+        row = self.session.get(InstanceConfigOrm, "certificate_secret")
+        if not row:  # pragma: no cover
+            raise RuntimeError("instance_config not initialised — run open_session first")
+        return row.value
+
+    # ------------------------------------------------------------------ #
+    # Namespaces                                                           #
+    # ------------------------------------------------------------------ #
+
+    def create_namespace(
+        self,
+        name: str,
+        description: str = "",
+        *,
+        is_proprietary: bool = False,
+        encoded: bool = False,
+    ) -> Namespace:
+        """Create a namespace (idempotent via INSERT OR IGNORE)."""
+        # Standard library imports:
+        import os as _os
+
+        encryption_key: str | None = None
+        if encoded:
+            encryption_key = _os.urandom(32).hex()
+
+        ns = Namespace(
+            name=name,
+            description=description,
+            is_proprietary=is_proprietary,
+            encoded=encoded,
+        )
         self.session.execute(
             sqlite_insert(NamespaceOrm)
-            .values(name=ns.name, description=ns.description, created_at=_iso(ns.created_at))
+            .values(
+                name=ns.name,
+                description=ns.description,
+                is_proprietary=int(is_proprietary),
+                encoded=int(encoded),
+                encryption_key=encryption_key,
+                created_at=_iso(ns.created_at),
+            )
             .on_conflict_do_nothing(index_elements=["name"])
         )
         self.session.commit()
         return ns
 
+    def update_namespace(
+        self,
+        name: str,
+        *,
+        description: str | None = None,
+        is_proprietary: bool | None = None,
+    ) -> Namespace:
+        """Update mutable namespace fields.  Returns the updated namespace."""
+        row = self.session.get(NamespaceOrm, name)
+        if not row:
+            raise KeyError(f"namespace {name!r} not found")
+        values: dict = {}
+        if description is not None:
+            values["description"] = description
+        if is_proprietary is not None:
+            values["is_proprietary"] = int(is_proprietary)
+        if values:
+            self.session.execute(
+                update(NamespaceOrm).where(NamespaceOrm.name == name).values(**values)
+            )
+            self.session.commit()
+        return self._row_to_namespace(self.session.get(NamespaceOrm, name))  # type: ignore[arg-type]
+
     def get_namespace(self, name: str) -> Namespace | None:
+        """Return the namespace *name*, or ``None`` if it does not exist."""
         row = self.session.get(NamespaceOrm, name)
         if not row:
             return None
+        return self._row_to_namespace(row)
+
+    def list_namespaces(self) -> list[Namespace]:
+        """Return all namespaces ordered by creation time."""
+        rows = self.session.execute(select(NamespaceOrm)).scalars().all()
+        return [self._row_to_namespace(r) for r in rows]
+
+    @staticmethod
+    def _row_to_namespace(row: NamespaceOrm) -> Namespace:
+        """Convert a ``NamespaceOrm`` row to a ``Namespace`` Pydantic model."""
         return Namespace(
             name=row.name,
             description=row.description,
+            is_proprietary=bool(row.is_proprietary),
+            encoded=bool(row.encoded),
             created_at=_from_iso(row.created_at),
         )
+
+    # ------------------------------------------------------------------ #
+    # Namespace access control                                             #
+    # ------------------------------------------------------------------ #
+
+    def check_namespace_access(self, namespace: str, cert_token: str | None) -> None:
+        """Raise ``PermissionError`` if *namespace* is proprietary and no valid cert provided.
+
+        This is a no-op for public namespaces.
+        """
+        row = self.session.get(NamespaceOrm, namespace)
+        if not row or not row.is_proprietary:
+            return
+        if cert_token is None:
+            raise PermissionError(f"namespace {namespace!r} is proprietary — certificate required")
+        payload = self._verify_cert_token(cert_token)
+        if payload is None or payload.namespace != namespace:
+            raise PermissionError(f"invalid or expired certificate for namespace {namespace!r}")
+
+    def _verify_cert_token(self, token: str) -> CertPayload | None:
+        """Verify token signature + expiry + revocation.  Returns payload or None."""
+        secret = self._get_instance_secret()
+        payload = verify_token(token, secret)
+        if payload is None:
+            return None
+        # Check revocation
+        cert_row = self.session.get(NamespaceCertOrm, payload.id)
+        if cert_row is None or cert_row.revoked:
+            return None
+        return payload
+
+    # ------------------------------------------------------------------ #
+    # Namespace certificates                                               #
+    # ------------------------------------------------------------------ #
+
+    def issue_certificate(
+        self,
+        namespace: str,
+        granted_to: str,
+        expires_at: datetime | None = None,
+    ) -> NamespaceCert:
+        """Issue a signed certificate granting access to *namespace*."""
+        ns_row = self.session.get(NamespaceOrm, namespace)
+        if not ns_row:
+            raise KeyError(f"namespace {namespace!r} not found")
+        if not ns_row.is_proprietary:
+            raise ValueError(f"namespace {namespace!r} is public — no certificate needed")
+
+        cert_id = str(uuid.uuid4())
+        now = _utcnow()
+        secret = self._get_instance_secret()
+        token = generate_token(cert_id, namespace, granted_to, now, expires_at, secret)
+
+        self.session.add(
+            NamespaceCertOrm(
+                id=cert_id,
+                namespace=namespace,
+                granted_to=granted_to,
+                issued_at=_iso(now),
+                expires_at=_iso(expires_at) if expires_at else None,
+                revoked=0,
+            )
+        )
+        self.session.commit()
+        return NamespaceCert(
+            id=cert_id,
+            namespace=namespace,
+            granted_to=granted_to,
+            issued_at=now,
+            expires_at=expires_at,
+            revoked=False,
+            token=token,
+        )
+
+    def list_certificates(self, namespace: str) -> list[NamespaceCert]:
+        """Return all certificates issued for *namespace*."""
+        rows = (
+            self.session.execute(
+                select(NamespaceCertOrm)
+                .where(NamespaceCertOrm.namespace == namespace)
+                .order_by(NamespaceCertOrm.issued_at.asc())
+            )
+            .scalars()
+            .all()
+        )
+        return [
+            NamespaceCert(
+                id=r.id,
+                namespace=r.namespace,
+                granted_to=r.granted_to,
+                issued_at=_from_iso(r.issued_at),
+                expires_at=_from_iso(r.expires_at) if r.expires_at else None,
+                revoked=bool(r.revoked),
+            )
+            for r in rows
+        ]
+
+    def revoke_certificate(self, cert_id: str) -> bool:
+        """Mark a certificate as revoked.  Returns True if it existed."""
+        row = self.session.get(NamespaceCertOrm, cert_id)
+        if not row:
+            return False
+        self.session.execute(
+            update(NamespaceCertOrm).where(NamespaceCertOrm.id == cert_id).values(revoked=1)
+        )
+        self.session.commit()
+        return True
 
     # ------------------------------------------------------------------ #
     # Prompts                                                              #
@@ -168,6 +444,7 @@ class VersionStore:
         visibility: Visibility = Visibility.public,
         variables: list[VariableSchema] | None = None,
     ) -> Prompt:
+        """Create a new prompt in *namespace* (auto-creating the namespace if needed)."""
         self.create_namespace(namespace)
         prompt = Prompt(
             namespace=namespace,
@@ -214,6 +491,7 @@ class VersionStore:
         return prompt
 
     def get_prompt(self, namespace: str, name: str) -> Prompt | None:
+        """Return prompt *namespace/name*, or ``None`` if absent."""
         row = self.session.execute(
             select(PromptOrm).where(PromptOrm.namespace == namespace, PromptOrm.name == name)
         ).scalar_one_or_none()
@@ -227,6 +505,7 @@ class VersionStore:
         model: str | None = None,
         visibility: str | None = None,
     ) -> list[Prompt]:
+        """Return prompts, optionally filtered by namespace, tag, model, or visibility."""
         stmt = select(PromptOrm)
         if namespace is not None:
             stmt = stmt.where(PromptOrm.namespace == namespace)
@@ -247,8 +526,14 @@ class VersionStore:
         tag: str | None = None,
         model: str | None = None,
         visibility: str | None = None,
+        cert_token: str | None = None,
     ) -> list[Prompt]:
-        """Full-text search over prompt name, description, tags, and model hints."""
+        """Full-text search over prompt name, description, tags, and model hints.
+
+        By default only prompts from public, non-encoded namespaces are returned.
+        When *cert_token* is supplied and valid, prompts from the certified namespace
+        are also included (encoded prompts remain excluded).
+        """
         if self._dialect == "sqlite":
             fts_rows = self.session.execute(
                 text("SELECT prompt_id FROM prompts_fts WHERE prompts_fts MATCH :q ORDER BY rank"),
@@ -277,9 +562,31 @@ class VersionStore:
         if visibility is not None:
             stmt = stmt.where(PromptOrm.visibility == visibility)
         rows = self.session.execute(stmt).scalars().all()
-        return sorted([_orm_to_prompt(r) for r in rows], key=lambda p: id_rank[p.id])
+
+        # Resolve the certified namespace (if any) so we can include its prompts.
+        cert_ns: str | None = None
+        if cert_token:
+            payload = self._verify_cert_token(cert_token)
+            if payload:
+                cert_ns = payload.namespace
+
+        # Filter by namespace access rules — encoded namespaces always excluded from search.
+        def _allowed(row: PromptOrm) -> bool:
+            """Return ``True`` if *row* passes namespace access rules for this search."""
+            ns_row = self.session.get(NamespaceOrm, row.namespace)
+            if ns_row and ns_row.encoded:
+                return False
+            if ns_row and ns_row.is_proprietary:
+                return row.namespace == cert_ns
+            return True
+
+        return sorted(
+            [_orm_to_prompt(r) for r in rows if _allowed(r)],
+            key=lambda p: id_rank[p.id],
+        )
 
     def delete_prompt(self, prompt_id: str) -> None:
+        """Permanently delete a prompt and all its versions, branches, and tags."""
         if self._dialect == "sqlite":
             self.session.execute(
                 text("DELETE FROM prompts_fts WHERE prompt_id = :pid"), {"pid": prompt_id}
@@ -294,6 +601,11 @@ class VersionStore:
     # Commits                                                              #
     # ------------------------------------------------------------------ #
 
+    def _namespace_enc_key(self, namespace: str) -> str | None:
+        """Return the hex encryption key for an encoded namespace, or None."""
+        row = self.session.get(NamespaceOrm, namespace)
+        return row.encryption_key if row and row.encoded else None
+
     def commit(
         self,
         prompt_id: str,
@@ -303,7 +615,16 @@ class VersionStore:
         branch: str = "main",
         variables: list[VariableSchema] | None = None,
     ) -> Version:
-        content_sha = self.blobs.put(content)
+        """Write *content* to *branch*, advance the branch HEAD, and fire webhooks."""
+        # Determine if the namespace uses encoding.
+        prompt_row = self.session.get(PromptOrm, prompt_id)
+        enc_key = self._namespace_enc_key(prompt_row.namespace) if prompt_row else None
+        is_encoded = enc_key is not None
+
+        if is_encoded:
+            content_sha = self.blobs.put_encrypted(content, enc_key)  # type: ignore[arg-type]
+        else:
+            content_sha = self.blobs.put(content)
         created_at = _utcnow()
 
         parent_branch = self.session.execute(
@@ -323,6 +644,7 @@ class VersionStore:
                 message=message,
                 author=author,
                 content_sha=content_sha,
+                is_encoded=int(is_encoded),
                 variables=json.dumps([v.model_dump() for v in (variables or [])]),
                 created_at=_iso(created_at),
             )
@@ -380,6 +702,7 @@ class VersionStore:
         return version
 
     def has_version(self, sha: str) -> bool:
+        """Return ``True`` if the store already contains the version *sha*."""
         return self.session.get(VersionOrm, sha) is not None
 
     def import_version(
@@ -402,6 +725,15 @@ class VersionStore:
         if self.has_version(sha):
             return self.get_version(sha)  # type: ignore[return-value]
 
+        # For encoded namespaces, store encrypted content.
+        prompt_row = self.session.get(PromptOrm, prompt_id)
+        enc_key = self._namespace_enc_key(prompt_row.namespace) if prompt_row else None
+        is_encoded = enc_key is not None
+        if is_encoded:
+            self.blobs.put_encrypted(content, enc_key)  # type: ignore[arg-type]
+        else:
+            self.blobs.put(content)
+
         self.session.execute(
             sqlite_insert(VersionOrm).values(
                 sha=sha,
@@ -411,6 +743,7 @@ class VersionStore:
                 message=message,
                 author=author,
                 content_sha=content_sha,
+                is_encoded=int(is_encoded),
                 variables=json.dumps([v.model_dump() for v in (variables or [])]),
                 created_at=_iso(created_at),
             )
@@ -444,10 +777,20 @@ class VersionStore:
         return self.get_version(sha)  # type: ignore[return-value]
 
     def get_version(self, sha: str) -> Version | None:
+        """Return the version identified by *sha*, or ``None`` if absent."""
         row = self.session.get(VersionOrm, sha)
         if not row:
             return None
-        content = self.blobs.get(row.content_sha)
+        if row.is_encoded:
+            prompt_row = self.session.get(PromptOrm, row.prompt_id)
+            enc_key = self._namespace_enc_key(prompt_row.namespace) if prompt_row else None
+            content = (
+                self.blobs.get_encrypted(row.content_sha, enc_key)  # type: ignore[arg-type]
+                if enc_key
+                else ""
+            )
+        else:
+            content = self.blobs.get(row.content_sha)
         tag_rows = self.session.execute(
             select(TagOrm.name).where(TagOrm.prompt_id == row.prompt_id, TagOrm.sha == sha)
         ).all()
@@ -465,6 +808,7 @@ class VersionStore:
         )
 
     def log(self, prompt_id: str, branch: str = "main") -> list[Version]:
+        """Return the commit history for *prompt_id* on *branch*, newest first."""
         rows = self.session.execute(
             select(VersionOrm.sha)
             .where(VersionOrm.prompt_id == prompt_id, VersionOrm.branch == branch)
@@ -472,11 +816,66 @@ class VersionStore:
         ).all()
         return [v for r in rows if (v := self.get_version(r.sha)) is not None]
 
+    def list_all_versions_for_export(
+        self,
+        since: datetime | None = None,
+        namespace: str | None = None,
+    ) -> list[tuple[str, str, Version]]:
+        """Return (namespace, prompt_name, Version) tuples ordered by created_at ASC.
+
+        Used by the export/push mechanism. *since* filters to versions created
+        strictly after that timestamp; *namespace* restricts to one namespace.
+        """
+        stmt = (
+            select(VersionOrm, PromptOrm)
+            .join(PromptOrm, VersionOrm.prompt_id == PromptOrm.id)
+            .order_by(VersionOrm.created_at)
+        )
+        if since is not None:
+            stmt = stmt.where(VersionOrm.created_at > _iso(since))
+        if namespace is not None:
+            stmt = stmt.where(PromptOrm.namespace == namespace)
+        rows = self.session.execute(stmt).all()
+        if not rows:
+            return []
+
+        shas = [ver.sha for ver, _ in rows]
+        tag_rows = self.session.execute(
+            select(TagOrm).where(TagOrm.sha.in_(shas))
+        ).scalars().all()
+        tags_by_sha: dict[str, list[str]] = {}
+        for t in tag_rows:
+            tags_by_sha.setdefault(t.sha, []).append(t.name)
+
+        result = []
+        for ver_orm, prompt_orm in rows:
+            content = self.blobs.get(ver_orm.content_sha)
+            result.append(
+                (
+                    prompt_orm.namespace,
+                    prompt_orm.name,
+                    Version(
+                        sha=ver_orm.sha,
+                        prompt_id=ver_orm.prompt_id,
+                        branch=ver_orm.branch,
+                        parent_sha=ver_orm.parent_sha,
+                        message=ver_orm.message,
+                        author=ver_orm.author,
+                        content=content,
+                        variables=_load_variables(ver_orm.variables),
+                        created_at=_from_iso(ver_orm.created_at),
+                        tags=tags_by_sha.get(ver_orm.sha, []),
+                    ),
+                )
+            )
+        return result
+
     # ------------------------------------------------------------------ #
     # Tags                                                                 #
     # ------------------------------------------------------------------ #
 
     def create_tag(self, prompt_id: str, tag_name: str, sha: str) -> Tag:
+        """Create or update a tag *tag_name* pointing to *sha* for *prompt_id*."""
         created_at = _utcnow()
         ts = _iso(created_at)
         stmt = sqlite_insert(TagOrm).values(
@@ -492,6 +891,7 @@ class VersionStore:
         return Tag(name=tag_name, prompt_id=prompt_id, sha=sha, created_at=created_at)
 
     def list_tags(self, prompt_id: str) -> list[Tag]:
+        """Return all tags for *prompt_id*, ordered by creation time."""
         rows = (
             self.session.execute(
                 select(TagOrm)
@@ -512,6 +912,7 @@ class VersionStore:
         ]
 
     def get_tag(self, prompt_id: str, tag_name: str) -> Tag | None:
+        """Return the tag *tag_name* for *prompt_id*, or ``None`` if absent."""
         row = self.session.execute(
             select(TagOrm).where(TagOrm.prompt_id == prompt_id, TagOrm.name == tag_name)
         ).scalar_one_or_none()
@@ -529,6 +930,7 @@ class VersionStore:
     # ------------------------------------------------------------------ #
 
     def create_branch(self, prompt_id: str, branch_name: str, from_sha: str) -> Branch:
+        """Create or reset *branch_name* to point at *from_sha*."""
         created_at = _utcnow()
         ts = _iso(created_at)
         stmt = sqlite_insert(BranchOrm).values(
@@ -554,6 +956,7 @@ class VersionStore:
         )
 
     def get_branch(self, prompt_id: str, branch_name: str) -> Branch | None:
+        """Return branch *branch_name* for *prompt_id*, or ``None`` if absent."""
         row = self.session.execute(
             select(BranchOrm).where(BranchOrm.prompt_id == prompt_id, BranchOrm.name == branch_name)
         ).scalar_one_or_none()
@@ -568,6 +971,7 @@ class VersionStore:
         )
 
     def list_branches(self, prompt_id: str) -> list[Branch]:
+        """Return all branches for *prompt_id*."""
         rows = (
             self.session.execute(select(BranchOrm).where(BranchOrm.prompt_id == prompt_id))
             .scalars()
@@ -589,6 +993,7 @@ class VersionStore:
     # ------------------------------------------------------------------ #
 
     def diff(self, sha1: str, sha2: str) -> str:
+        """Return a unified diff comparing the content of *sha1* and *sha2*."""
         v1 = self.get_version(sha1)
         v2 = self.get_version(sha2)
         if not v1:
@@ -722,6 +1127,7 @@ class VersionStore:
         return fork_record
 
     def list_forks(self, namespace: str, name: str) -> list[Fork]:
+        """Return all forks sourced from *namespace/name*, ordered by creation time."""
         slug = f"{namespace}/{name}"
         rows = (
             self.session.execute(
@@ -819,6 +1225,7 @@ class VersionStore:
     # ------------------------------------------------------------------ #
 
     def create_api_key(self, name: str, key_hash: str) -> tuple[str, datetime]:
+        """Store a hashed API key and return ``(token_id, created_at)``."""
         token_id = str(uuid.uuid4())
         created_at = _utcnow()
         self.session.add(
@@ -828,6 +1235,7 @@ class VersionStore:
         return token_id, created_at
 
     def list_api_keys(self) -> list[tuple[str, str, datetime, datetime | None]]:
+        """Return ``(id, name, created_at, last_used_at)`` tuples for all API keys."""
         rows = (
             self.session.execute(select(ApiKeyOrm).order_by(ApiKeyOrm.created_at.desc()))
             .scalars()
@@ -844,11 +1252,13 @@ class VersionStore:
         ]
 
     def revoke_api_key(self, token_id: str) -> bool:
+        """Delete the API key with *token_id*; return ``True`` if it existed."""
         result = self.session.execute(delete(ApiKeyOrm).where(ApiKeyOrm.id == token_id))
         self.session.commit()
         return result.rowcount > 0  # type: ignore[attr-defined]
 
     def verify_api_key(self, key_hash: str) -> dict[str, str] | None:
+        """Verify a hashed key, update ``last_used_at``, and return token metadata or ``None``."""
         row = self.session.execute(
             select(ApiKeyOrm).where(ApiKeyOrm.key_hash == key_hash)
         ).scalar_one_or_none()
@@ -903,6 +1313,7 @@ class VersionStore:
     # ------------------------------------------------------------------ #
 
     def star_prompt(self, namespace: str, name: str, actor: str) -> Star:
+        """Star *namespace/name* on behalf of *actor* (idempotent)."""
         self.create_namespace(actor)
         prompt = self.get_prompt(namespace, name)
         if not prompt:
@@ -931,6 +1342,7 @@ class VersionStore:
         return Star(id=row.id, namespace=actor, prompt_id=prompt.id, created_at=now)
 
     def unstar_prompt(self, namespace: str, name: str, actor: str) -> bool:
+        """Remove *actor*'s star from *namespace/name*; return ``True`` if it existed."""
         prompt = self.get_prompt(namespace, name)
         if not prompt:
             raise KeyError(f"{namespace}/{name}")
@@ -947,6 +1359,7 @@ class VersionStore:
         return result.rowcount > 0  # type: ignore[attr-defined]
 
     def list_stargazers(self, namespace: str, name: str) -> list[Star]:
+        """Return all stars for *namespace/name*."""
         prompt = self.get_prompt(namespace, name)
         if not prompt:
             raise KeyError(f"{namespace}/{name}")
@@ -972,6 +1385,7 @@ class VersionStore:
     def add_comment(
         self, namespace: str, name: str, body: str, author: str, version_sha: str | None = None
     ) -> Comment:
+        """Add *author*'s comment *body* to *namespace/name* (optionally on *version_sha*)."""
         prompt = self.get_prompt(namespace, name)
         if not prompt:
             raise KeyError(f"{namespace}/{name}")
@@ -998,6 +1412,7 @@ class VersionStore:
     def list_comments(
         self, namespace: str, name: str, version_sha: str | None = None
     ) -> list[Comment]:
+        """Return comments for *namespace/name*, filtered by *version_sha* when given."""
         prompt = self.get_prompt(namespace, name)
         if not prompt:
             raise KeyError(f"{namespace}/{name}")
@@ -1019,6 +1434,7 @@ class VersionStore:
         ]
 
     def delete_comment(self, comment_id: str) -> bool:
+        """Delete comment *comment_id*; return ``True`` if it existed."""
         result = self.session.execute(delete(CommentOrm).where(CommentOrm.id == comment_id))
         self.session.commit()
         return result.rowcount > 0  # type: ignore[attr-defined]
@@ -1028,6 +1444,7 @@ class VersionStore:
     # ------------------------------------------------------------------ #
 
     def create_collection(self, namespace: str, name: str, description: str = "") -> Collection:
+        """Create a new collection *namespace/name* (raises ``ValueError`` if it already exists)."""
         self.create_namespace(namespace)
         existing = self.session.execute(
             select(CollectionOrm).where(
@@ -1051,6 +1468,7 @@ class VersionStore:
         )
 
     def get_collection(self, namespace: str, name: str) -> Collection | None:
+        """Return collection *namespace/name*, or ``None`` if absent."""
         row = self.session.execute(
             select(CollectionOrm).where(
                 CollectionOrm.namespace == namespace, CollectionOrm.name == name
@@ -1067,6 +1485,7 @@ class VersionStore:
         )
 
     def list_collections(self, namespace: str | None = None) -> list[Collection]:
+        """Return all collections, optionally restricted to *namespace*."""
         stmt = select(CollectionOrm)
         if namespace is not None:
             stmt = stmt.where(CollectionOrm.namespace == namespace)
@@ -1083,6 +1502,7 @@ class VersionStore:
         ]
 
     def delete_collection(self, namespace: str, name: str) -> bool:
+        """Delete collection *namespace/name* and all its items; return ``True`` if it existed."""
         row = self.session.execute(
             select(CollectionOrm).where(
                 CollectionOrm.namespace == namespace, CollectionOrm.name == name
@@ -1098,6 +1518,7 @@ class VersionStore:
         return True
 
     def add_to_collection(self, namespace: str, name: str, prompt_slug: str) -> None:
+        """Add *prompt_slug* (``namespace/name``) to collection *namespace/name* (idempotent)."""
         coll = self.session.execute(
             select(CollectionOrm).where(
                 CollectionOrm.namespace == namespace, CollectionOrm.name == name
@@ -1124,6 +1545,7 @@ class VersionStore:
             self.session.commit()
 
     def remove_from_collection(self, namespace: str, name: str, prompt_slug: str) -> bool:
+        """Remove *prompt_slug* from collection *namespace/name*; return ``True`` if present."""
         coll = self.session.execute(
             select(CollectionOrm).where(
                 CollectionOrm.namespace == namespace, CollectionOrm.name == name
@@ -1145,6 +1567,7 @@ class VersionStore:
         return result.rowcount > 0  # type: ignore[attr-defined]
 
     def list_collection_items(self, namespace: str, name: str) -> list[Prompt]:
+        """Return all prompts that belong to collection *namespace/name*."""
         coll = self.session.execute(
             select(CollectionOrm).where(
                 CollectionOrm.namespace == namespace, CollectionOrm.name == name
@@ -1175,6 +1598,7 @@ class VersionStore:
         events: list[str] | None = None,
         namespace: str | None = None,
     ) -> Webhook:
+        """Register a new webhook that POSTs to *url* signed with *secret*."""
         now = _utcnow()
         hook = Webhook(
             url=url,
@@ -1196,6 +1620,7 @@ class VersionStore:
         return hook
 
     def list_webhooks(self) -> list[Webhook]:
+        """Return all registered webhooks."""
         rows = (
             self.session.execute(select(WebhookOrm).order_by(WebhookOrm.created_at)).scalars().all()
         )
@@ -1212,6 +1637,7 @@ class VersionStore:
         ]
 
     def delete_webhook(self, webhook_id: str) -> bool:
+        """Delete the webhook *webhook_id*; return ``True`` if it existed."""
         result = self.session.execute(delete(WebhookOrm).where(WebhookOrm.id == webhook_id))
         self.session.commit()
         return result.rowcount > 0  # type: ignore[attr-defined]
