@@ -1,0 +1,263 @@
+# https://taskfile.dev  —  requires Task ≥ 3.28
+version: '3'
+
+vars:
+  SRC:   src/cantica
+  TESTS: tests
+
+# ── Default ────────────────────────────────────────────────────────────────
+tasks:
+  default:
+    desc: List all available tasks
+    silent: true
+    cmd: task --list
+
+  # ── Setup ────────────────────────────────────────────────────────────────
+  install:
+    desc: Sync all dependencies including the dev group
+    cmd: uv sync --all-groups
+
+  install:ci:
+    desc: Sync with a frozen lockfile (for CI — fails if lockfile is stale)
+    cmd: uv sync --all-groups --frozen
+
+  # ── Testing ──────────────────────────────────────────────────────────────
+  test:
+    desc: Run the full test suite with coverage (≥ 99 % required)
+    cmd: uv run pytest
+
+  test:fast:
+    desc: Run tests without coverage for quick iteration
+    cmd: uv run pytest --no-cov -q
+
+  test:verbose:
+    desc: Run tests with full verbose output
+    cmd: uv run pytest -v
+
+  test:one:
+    desc: "Run tests matching a name pattern   [usage: task test:one -- session]"
+    cmd: uv run pytest -k "{{.CLI_ARGS}}" -v
+
+  test:file:
+    desc: "Run a single test file              [usage: task test:file -- tests/test_cli.py]"
+    cmd: uv run pytest {{.CLI_ARGS}} -v
+
+  test:cov:html:
+    desc: Generate an HTML coverage report in htmlcov/ and print the path
+    cmds:
+      - uv run pytest --cov-report=html --cov-report=term-missing
+      - cmd: echo "Report → htmlcov/index.html"
+        silent: true
+
+  test:cov:xml:
+    desc: Generate an XML coverage report (for CI badge / Codecov)
+    cmd: uv run pytest --cov-report=xml --cov-report=term-missing
+
+  # ── Linting ──────────────────────────────────────────────────────────────
+  lint:
+    desc: Check source and tests with ruff
+    cmd: uv run ruff check {{.SRC}} {{.TESTS}}
+
+  lint:fix:
+    desc: Check source and tests with ruff, auto-fix where possible
+    cmd: uv run ruff check --fix {{.SRC}} {{.TESTS}}
+
+  lint:watch:
+    desc: Watch and re-lint on every file change
+    cmd: uv run ruff check --watch {{.SRC}} {{.TESTS}}
+
+  # ── Formatting ───────────────────────────────────────────────────────────
+  format:
+    desc: Format all Python files in-place
+    cmd: uv run ruff format {{.SRC}} {{.TESTS}}
+
+  format:check:
+    desc: Check formatting without modifying files (used in CI)
+    cmd: uv run ruff format --check {{.SRC}} {{.TESTS}}
+
+  format:diff:
+    desc: Show formatting changes that would be applied
+    cmd: uv run ruff format --diff {{.SRC}} {{.TESTS}}
+
+  # ── Type checking ─────────────────────────────────────────────────────────
+  typecheck:
+    desc: Run mypy static type checker on the library
+    cmd: uv run mypy {{.SRC}}
+
+  typecheck:strict:
+    desc: Run mypy with --strict (more thorough but may require additional annotations)
+    cmd: uv run mypy --strict {{.SRC}}
+
+  typecheck:report:
+    desc: Generate an HTML type-checking report in mypy-report/
+    cmd: uv run mypy {{.SRC}} --html-report mypy-report
+
+  # ── Combined workflows ────────────────────────────────────────────────────
+  check:
+    desc: Run all quality gates — lint, format check, typecheck, full test suite
+    cmds:
+      - task: lint
+      - task: format:check
+      - task: typecheck
+      - task: test
+
+  fix:
+    desc: Auto-fix all lint issues and reformat all files
+    cmds:
+      - task: lint:fix
+      - task: format
+
+  dev:
+    desc: Developer loop — fix everything, then run tests
+    cmds:
+      - task: fix
+      - task: test
+
+  ci:
+    desc: Full CI pipeline — frozen install → lint → format check → typecheck → test
+    cmds:
+      - task: install:ci
+      - task: lint
+      - task: format:check
+      - task: typecheck
+      - task: test
+
+  # ── Database migrations (Atlas) ───────────────────────────────────────────
+  db:new:
+    desc: "Plan a new migration from model changes   [usage: task db:new -- add_column_x]"
+    cmd: atlas migrate diff --env sqlalchemy {{.CLI_ARGS}}
+
+  db:apply:
+    desc: "Apply pending migrations to a database    [usage: task db:apply -- sqlite:///vault/cantica.db]"
+    cmd: atlas migrate apply --env sqlalchemy --url "{{.CLI_ARGS}}"
+
+  db:status:
+    desc: "Show migration status for a database      [usage: task db:status -- sqlite:///vault/cantica.db]"
+    cmd: atlas migrate status --env sqlalchemy --url "{{.CLI_ARGS}}"
+
+  db:lint:
+    desc: Lint migration files for destructive or unsafe changes
+    cmd: atlas migrate lint --env sqlalchemy --latest 1
+
+  db:validate:
+    desc: Validate the migration directory checksum (atlas.sum integrity)
+    cmd: atlas migrate validate --env sqlalchemy
+
+  # ── Serve ─────────────────────────────────────────────────────────────────
+  serve:
+    desc: Start the Cantica API server (development mode with auto-reload)
+    cmd: uv run cantica serve --reload
+
+  serve:prod:
+    desc: Start the Cantica API server (production mode)
+    cmd: uv run cantica serve
+
+  serve:port:
+    desc: "Start the server on a custom port    [usage: task serve:port -- 9000]"
+    cmd: uv run cantica serve --port {{.CLI_ARGS}}
+
+  # ── Build & publish ───────────────────────────────────────────────────────
+  build:
+    desc: Build sdist and wheel into dist/
+    cmds:
+      - rm -rf dist/
+      - uv build
+      - cmd: ls -lh dist/
+        silent: false
+
+  publish:
+    desc: Clean dist, run all checks, build, and publish to PyPI
+    prompt: "Publish to PyPI — this cannot be undone, continue?"
+    cmds:
+      - task: check
+      - task: build
+      - uv publish
+
+  publish:test:
+    desc: Clean dist, build, and publish to TestPyPI
+    cmds:
+      - task: build
+      - uv publish --publish-url https://test.pypi.org/legacy/
+
+  # ── Dependencies ─────────────────────────────────────────────────────────
+  deps:update:
+    desc: Update all packages to their latest allowed versions
+    cmd: uv lock --upgrade
+
+  deps:update:pkg:
+    desc: "Update a single package                [usage: task deps:update:pkg -- pydantic]"
+    cmd: uv lock --upgrade-package {{.CLI_ARGS}}
+
+  deps:add:
+    desc: "Add a runtime dependency               [usage: task deps:add -- httpx]"
+    cmd: uv add {{.CLI_ARGS}}
+
+  deps:add:dev:
+    desc: "Add a development dependency           [usage: task deps:add:dev -- pytest-xdist]"
+    cmd: uv add --dev {{.CLI_ARGS}}
+
+  deps:remove:
+    desc: "Remove a dependency                    [usage: task deps:remove -- httpx]"
+    cmd: uv remove {{.CLI_ARGS}}
+
+  deps:tree:
+    desc: Show the full dependency tree
+    cmd: uv tree
+
+  deps:outdated:
+    desc: List packages that have newer versions available
+    cmd: uv tree --outdated
+
+  # ── REPL & utilities ─────────────────────────────────────────────────────
+  repl:
+    desc: Open an interactive Python shell with cantica available
+    interactive: true
+    cmd: uv run python
+
+  run:
+    desc: "Run any command in the project environment [usage: task run -- python script.py]"
+    cmd: uv run {{.CLI_ARGS}}
+
+  version:
+    desc: Print the current package version
+    cmd: uv run python -c "from importlib.metadata import version; print(version('cantica'))"
+
+  # ── Clean ─────────────────────────────────────────────────────────────────
+  clean:
+    desc: Remove build artefacts, caches, and coverage data
+    silent: true
+    cmd: |
+      rm -rf dist/ build/ .eggs/
+      rm -rf src/*.egg-info
+      rm -rf .pytest_cache .mypy_cache .ruff_cache mypy-report
+      rm -rf htmlcov/ .coverage .coverage.*
+      find . -path './.venv' -prune -o -type d -name '__pycache__' -print \
+        | xargs rm -rf 2>/dev/null || true
+      find . -path './.venv' -prune -o -name '*.pyc' -print \
+        | xargs rm -f 2>/dev/null || true
+      printf '\033[32m✓ Clean\033[0m\n'
+
+  # ── Frontend ─────────────────────────────────────────────────────────────
+  ui:dev:
+    desc: Start the Vite dev server (proxies /v1 to FastAPI at :8042)
+    dir: frontend
+    cmd: npm run dev
+
+  ui:build:
+    desc: Build the frontend for production (outputs to frontend/dist/)
+    dir: frontend
+    cmd: npm run build
+
+  ui:install:
+    desc: Install frontend npm dependencies
+    dir: frontend
+    cmd: npm install
+
+  clean:all:
+    desc: Remove everything including the virtual environment (run task install to restore)
+    cmds:
+      - task: clean
+      - cmd: rm -rf .venv/
+        silent: true
+      - cmd: printf '\033[32m✓ Fully clean\033[0m\n'
+        silent: true

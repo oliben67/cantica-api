@@ -1,0 +1,134 @@
+[project]
+name = "cantica"
+version = "0.1.0"
+description = "A versioned, community-driven vault for AI prompts."
+readme = "README.md"
+authors = [
+    { name = "Olivier Steck", email = "osteck@gmail.com" }
+]
+requires-python = ">=3.14"
+dependencies = [
+    "fastapi>=0.136.1",
+    "httpx>=0.28.1",
+    "pydantic>=2.13.4",
+    "pydantic-settings>=2.14.1",
+    "sqlalchemy>=2.0.49",
+    "tomli-w>=1.2.0",
+    "typer>=0.25.1",
+    "uvicorn[standard]>=0.47.0",
+]
+
+[project.scripts]
+cantica = "cantica.cli:app"
+
+[project.optional-dependencies]
+postgres = [
+    "psycopg2-binary>=2.9.12",
+]
+
+[build-system]
+requires = ["uv_build>=0.10.12,<0.11.0"]
+build-backend = "uv_build"
+
+[dependency-groups]
+dev = [
+    "pytest>=9.0.3",
+    "pytest-cov>=7.1.0",
+    "ruff>=0.8",
+    "mypy>=1.0",
+    "atlas-provider-sqlalchemy>=0.5.0",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-v --tb=short --cov=cantica --cov-report=term-missing --cov-fail-under=99"
+
+[tool.coverage.run]
+source = ["cantica"]
+branch = true
+
+[tool.coverage.report]
+fail_under = 99
+show_missing = true
+partial_branches = [
+    # Restore coverage.py default so `# pragma: no branch` still works.
+    "#\\s*(pragma[:\\s]\\s*no branch)",
+    # These branches are only reachable with a real PostgreSQL instance.
+    "if url\\.startswith\\(",
+    "if dialect ==",
+    "if self\\._dialect ==",
+]
+
+[tool.ruff]
+exclude = [
+    ".bzr",
+    ".direnv",
+    ".eggs",
+    ".git",
+    ".git-rewrite",
+    ".hg",
+    ".ipynb_checkpoints",
+    ".mypy_cache",
+    ".nox",
+    ".pants.d",
+    ".pyenv",
+    ".pytest_cache",
+    ".pytype",
+    ".ruff_cache",
+    ".svn",
+    ".tox",
+    ".venv",
+    ".vscode",
+    "__pypackages__",
+    "_build",
+    "buck-out",
+    "build",
+    "dist",
+    "node_modules",
+    "site-packages",
+    "venv",
+]
+line-length = 100
+indent-width = 4
+target-version = "py314"
+fix = true
+
+[tool.ruff.lint]
+extend-select = ["I", "UP"]
+ignore = ["E501"]
+fixable = ["ALL"]
+unfixable = []
+dummy-variable-rgx = "^(_+|(_+[a-zA-Z0-9_]*[a-zA-Z0-9]+?))$"
+isort.force-sort-within-sections = false
+isort.required-imports = ["from __future__ import annotations"]
+isort.import-heading.future = "Future imports (must occur at the beginning of the file):"
+isort.import-heading.standard-library = "Standard library imports:"
+isort.import-heading.third-party = "Third party imports:"
+isort.import-heading.first-party = "Local imports:"
+isort.no-lines-before = ["local-folder"]
+isort.section-order = [
+    "future",
+    "standard-library",
+    "third-party",
+    "first-party",
+    "local-folder",
+]
+isort.known-first-party = ["cantica"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*.py" = ["F401"]
+"tests/**/*.py" = ["F401"]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+skip-magic-trailing-comma = false
+line-ending = "auto"
+docstring-code-format = false
+docstring-code-line-length = "dynamic"
+
+[tool.mypy]
+python_version = "3.14"
+ignore_missing_imports = true
+warn_unused_configs = true
+warn_redundant_casts = true
