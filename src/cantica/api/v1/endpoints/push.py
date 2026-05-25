@@ -73,7 +73,9 @@ async def receive_push(
     return {"imported": imported, "skipped": skipped}
 
 
-async def _ingest_record(store: VersionStore, record: dict[str, Any], cert_token: str | None) -> str:
+async def _ingest_record(
+    store: VersionStore, record: dict[str, Any], cert_token: str | None
+) -> str:
     """Process one NDJSON record. Returns 'imported', 'skipped', or 'ignored'."""
     rtype = record.get("type")
 

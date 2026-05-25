@@ -25,6 +25,7 @@ from cantica.models import (
     Comment,
     Fork,
     Namespace,
+    NamespaceCert,
     Prompt,
     Star,
     Tag,
@@ -88,13 +89,72 @@ class _Namespaces:
         """Bind to *store*."""
         self._s = store
 
-    async def create(self, name: str, description: str = "") -> Namespace:
+    async def create(
+        self,
+        name: str,
+        description: str = "",
+        *,
+        is_proprietary: bool = False,
+        encoded: bool = False,
+    ) -> Namespace:
         """Create and return a new namespace named *name*."""
-        return await asyncio.to_thread(self._s.create_namespace, name, description)
+        return await asyncio.to_thread(
+            self._s.create_namespace,
+            name,
+            description,
+            is_proprietary=is_proprietary,
+            encoded=encoded,
+        )
 
     async def get(self, name: str) -> Namespace | None:
         """Return the namespace *name*, or ``None`` if it does not exist."""
         return await asyncio.to_thread(self._s.get_namespace, name)
+
+    async def list(self) -> builtins.list[Namespace]:
+        """Return all namespaces in the store."""
+        return await asyncio.to_thread(self._s.list_namespaces)
+
+    async def update(
+        self,
+        name: str,
+        *,
+        description: str | None = None,
+        is_proprietary: bool | None = None,
+    ) -> Namespace:
+        """Update mutable namespace fields and return the updated namespace."""
+        return await asyncio.to_thread(
+            self._s.update_namespace,
+            name,
+            description=description,
+            is_proprietary=is_proprietary,
+        )
+
+
+class _Certificates:
+    """Async façade for namespace certificate operations on the local store."""
+
+    __slots__ = ("_s",)
+
+    def __init__(self, store: VersionStore) -> None:
+        """Bind to *store*."""
+        self._s = store
+
+    async def issue(
+        self,
+        namespace: str,
+        granted_to: str,
+        expires_at: datetime | None = None,
+    ) -> NamespaceCert:
+        """Issue a new certificate for *namespace* and return it (token populated once)."""
+        return await asyncio.to_thread(self._s.issue_certificate, namespace, granted_to, expires_at)
+
+    async def list(self, namespace: str) -> builtins.list[NamespaceCert]:
+        """Return all certificates issued for *namespace*."""
+        return await asyncio.to_thread(self._s.list_certificates, namespace)
+
+    async def revoke(self, cert_id: str) -> bool:
+        """Revoke the certificate with *cert_id*; return ``True`` if it existed."""
+        return await asyncio.to_thread(self._s.revoke_certificate, cert_id)
 
 
 class _Prompts:
@@ -160,8 +220,12 @@ class _Prompts:
         tag: str | None = None,
         model: str | None = None,
         visibility: str | None = None,
+        cert_token: str | None = None,
     ) -> builtins.list[Prompt]:
-        """Full-text search prompts matching *q*."""
+        """Full-text search prompts matching *q*.
+
+        Pass *cert_token* to include results from the certified proprietary namespace.
+        """
         return await asyncio.to_thread(
             self._s.search_prompts,
             q,
@@ -169,6 +233,7 @@ class _Prompts:
             tag=tag,
             model=model,
             visibility=visibility,
+            cert_token=cert_token,
         )
 
     async def delete(self, namespace: str, name: str) -> None:
@@ -203,6 +268,7 @@ class _Versions:
         variables: builtins.list[VariableSchema] | None = None,
     ) -> Version:
         """Commit *content* to *namespace/name* on *branch* and return the new version."""
+
         def _sync() -> Version:
             return self._s.commit(
                 _require_prompt_id(self._s, namespace, name),
@@ -245,6 +311,7 @@ class _Versions:
         variables: builtins.list[VariableSchema] | None = None,
     ) -> Version:
         """Import a version with a pre-computed *sha* (used during push/ingest)."""
+
         def _sync() -> Version:
             return self._s.import_version(
                 _require_prompt_id(self._s, namespace, name),
@@ -306,6 +373,7 @@ class _Branches:
 
     async def get(self, namespace: str, name: str, branch_name: str) -> Branch | None:
         """Return *branch_name* for *namespace/name*, or ``None`` if absent."""
+
         def _sync() -> Branch | None:
             return self._s.get_branch(_require_prompt_id(self._s, namespace, name), branch_name)
 
@@ -349,6 +417,7 @@ class _Tags:
 
     async def get(self, namespace: str, name: str, tag_name: str) -> Tag | None:
         """Return the tag *tag_name* for *namespace/name*, or ``None`` if absent."""
+
         def _sync() -> Tag | None:
             return self._s.get_tag(_require_prompt_id(self._s, namespace, name), tag_name)
 
@@ -676,12 +745,15 @@ class _Export:
         api_key: str,
         since: datetime | None = None,
         namespace: str | None = None,
+        cert_token: str | None = None,
     ) -> dict[str, Any]:
         """Stream this instance's data to a remote Cantica *target_url*.
 
         Acquires the local write lock for the duration so that no writes
         interleave while the export snapshot is being streamed.  Requires
         ``httpx`` (``pip install httpx``).
+
+        Pass *cert_token* when the target namespace on the remote is proprietary.
         """
         # Third party imports:
         import httpx
@@ -693,14 +765,17 @@ class _Export:
                     yield chunk
 
             push_url = target_url.rstrip("/") + "/push"
+            headers: dict[str, str] = {
+                "Content-Type": "application/x-ndjson",
+                "X-API-Key": api_key,
+            }
+            if cert_token:
+                headers["X-Cantica-Certificate"] = cert_token
             async with httpx.AsyncClient() as client:
                 resp = await client.post(
                     push_url,
                     content=_body(),
-                    headers={
-                        "Content-Type": "application/x-ndjson",
-                        "X-API-Key": api_key,
-                    },
+                    headers=headers,
                     timeout=300,
                 )
             resp.raise_for_status()
@@ -846,7 +921,8 @@ class CanticaShim:
         shim.mount(app)   # registers /api/v1/* routes
 
         # Programmatic access — no HTTP round-trip:
-        await shim.namespaces.create("acme")
+        await shim.namespaces.create("acme", is_proprietary=True)
+        cert = await shim.certificates.issue("acme", granted_to="partner-service")
         prompt = await shim.prompts.create("acme", "my-prompt")
         version = await shim.versions.commit("acme", "my-prompt", "Hello {{name}}", "init", "alice")
         rendered = await shim.versions.render("acme", "my-prompt", variables={"name": "world"})
@@ -867,8 +943,8 @@ class CanticaShim:
         """
         if settings is None:
             settings = Settings(
-                **({} if vault_path is None else {"vault_path": Path(vault_path)}),
-                **({} if database_url is None else {"database_url": database_url}),
+                **({} if vault_path is None else {"vault_path": Path(vault_path)}),  # type: ignore[arg-type]
+                **({} if database_url is None else {"database_url": database_url}),  # type: ignore[arg-type]
             )
 
         self._settings = settings
@@ -881,6 +957,7 @@ class CanticaShim:
 
         _engine = TemplateEngine()
         self.namespaces = _Namespaces(self._store)
+        self.certificates = _Certificates(self._store)
         self.prompts = _Prompts(self._store)
         self.versions = _Versions(self._store, _engine)
         self.branches = _Branches(self._store)

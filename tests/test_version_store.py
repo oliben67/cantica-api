@@ -290,3 +290,139 @@ def test_fts_entry_removed_on_delete(store: VersionStore) -> None:
     assert len(store.search_prompts("zorkblat")) == 1
     store.delete_prompt(p.id)
     assert store.search_prompts("zorkblat") == []
+
+
+# ---------------------------------------------------------------------------
+# Namespace access control — new coverage
+# ---------------------------------------------------------------------------
+
+
+def test_verify_cert_token_revoked_returns_none(store: VersionStore) -> None:
+    store.create_namespace("prop", is_proprietary=True)
+    cert = store.issue_certificate("prop", "alice")
+    store.revoke_certificate(cert.id)
+    # Revoked token must fail access check.
+    with pytest.raises(PermissionError):
+        store.check_namespace_access("prop", cert.token)
+
+
+def test_encoded_namespace_commit_and_read(store: VersionStore) -> None:
+    store.create_namespace("enc", encoded=True)
+    p = store.create_prompt("enc", "secret")
+    v = store.commit(p.id, "secret content", "init", "alice")
+    fetched = store.get_version(v.sha)
+    assert fetched is not None
+    assert fetched.content == "secret content"
+
+
+def test_encoded_namespace_import_version(store: VersionStore) -> None:
+    store.create_namespace("enc2", encoded=True)
+    p = store.create_prompt("enc2", "imp")
+    # First commit to get a sha to use as parent
+    v1 = store.commit(p.id, "v1 content", "first", "alice")
+    # Standard library imports:
+    from datetime import UTC, datetime
+
+    v2 = store.import_version(
+        p.id,
+        v1.sha,  # re-import same sha — idempotent
+        "v1 content",
+        "first",
+        "alice",
+        "main",
+        None,
+        v1.created_at,
+    )
+    assert v2 is not None
+
+
+def test_search_excludes_encoded_namespace(store: VersionStore) -> None:
+    store.create_namespace("enc3", encoded=True)
+    store.create_prompt("enc3", "hidden", description="secretterm")
+    results = store.search_prompts("secretterm")
+    assert results == []
+
+
+def test_search_excludes_proprietary_without_cert(store: VersionStore) -> None:
+    store.create_namespace("prop2", is_proprietary=True)
+    store.create_prompt("prop2", "private", description="proprietaryterm")
+    results = store.search_prompts("proprietaryterm")
+    assert results == []
+
+
+def test_search_includes_proprietary_with_valid_cert(store: VersionStore) -> None:
+    store.create_namespace("prop3", is_proprietary=True)
+    store.create_prompt("prop3", "certified", description="certifiedterm")
+    cert = store.issue_certificate("prop3", "alice")
+    results = store.search_prompts("certifiedterm", cert_token=cert.token)
+    assert len(results) == 1
+    assert results[0].name == "certified"
+
+
+def test_search_with_invalid_cert_token_excludes_proprietary(store: VersionStore) -> None:
+    store.create_namespace("prop4", is_proprietary=True)
+    store.create_prompt("prop4", "blocked", description="invalidterm")
+    # An invalid cert_token still excludes proprietary namespaces (payload=None branch).
+    results = store.search_prompts("invalidterm", cert_token="bad.token")
+    assert results == []
+
+
+def test_create_encoded_namespace_generates_key(store: VersionStore) -> None:
+    # Third party imports:
+    from sqlalchemy import select
+
+    # Local imports:
+    from cantica.orm.tables import NamespaceOrm
+
+    ns = store.create_namespace("enc", encoded=True)
+    assert ns.encoded is True
+    row = store.session.execute(select(NamespaceOrm).where(NamespaceOrm.name == "enc")).scalar_one()
+    assert row.encryption_key is not None and len(row.encryption_key) == 64
+
+
+def test_update_namespace_not_found_raises(store: VersionStore) -> None:
+    with pytest.raises(KeyError):
+        store.update_namespace("missing", description="x")
+
+
+def test_update_namespace_no_changes(store: VersionStore) -> None:
+    store.create_namespace("acme")
+    ns = store.update_namespace("acme")
+    assert ns.name == "acme"
+
+
+def test_commit_and_get_version_in_encoded_namespace(store: VersionStore) -> None:
+    store.create_namespace("enc", encoded=True)
+    p = store.create_prompt("enc", "secret")
+    v = store.commit(p.id, "secret content", "Initial", "alice")
+    assert v.content == "secret content"
+    retrieved = store.get_version(v.sha)
+    assert retrieved is not None
+    assert retrieved.content == "secret content"
+
+
+def test_import_version_in_encoded_namespace(store: VersionStore) -> None:
+    # Standard library imports:
+    import hashlib
+    from datetime import UTC, datetime
+
+    store.create_namespace("enc", encoded=True)
+    p = store.create_prompt("enc", "secret")
+    content = "imported secret"
+    author = "alice"
+    message = "msg"
+    created_at = datetime(2024, 1, 1, 12, 0, 0, tzinfo=UTC)
+    content_sha = hashlib.sha256(content.encode()).hexdigest()
+    commit_data = f"commit\n{content_sha}\n\n{author}\n{message}\n{created_at.isoformat()}"
+    sha = hashlib.sha256(commit_data.encode()).hexdigest()
+
+    v = store.import_version(p.id, sha, content, message, author, "main", None, created_at)
+    assert v.content == content
+
+
+def test_verify_cert_revoked_raises_permission_error(store: VersionStore) -> None:
+    store.create_namespace("priv", is_proprietary=True)
+    cert = store.issue_certificate("priv", "alice")
+    store.revoke_certificate(cert.id)
+    with pytest.raises(PermissionError):
+        store.check_namespace_access("priv", cert.token)

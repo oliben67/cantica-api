@@ -60,7 +60,11 @@ def list_prompts(
             raise HTTPException(status_code=403, detail=str(exc)) from exc
     if q:
         prompts = store.search_prompts(
-            q, namespace=namespace, tag=tag, model=model, visibility=visibility,
+            q,
+            namespace=namespace,
+            tag=tag,
+            model=model,
+            visibility=visibility,
             cert_token=cert_token,
         )
     else:

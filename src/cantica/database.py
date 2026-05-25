@@ -139,7 +139,5 @@ def _ensure_instance_config(session: Session) -> None:
 
     row = session.get(InstanceConfigOrm, "certificate_secret")
     if not row:
-        session.add(
-            InstanceConfigOrm(key="certificate_secret", value=generate_instance_secret())
-        )
+        session.add(InstanceConfigOrm(key="certificate_secret", value=generate_instance_secret()))
         session.commit()

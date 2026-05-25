@@ -25,6 +25,11 @@ push            Push a prompt and its history to a remote Cantica instance.
 pull            Pull a prompt and its history from a remote Cantica instance.
 list            List prompts, with optional filters (namespace, tag, model, visibility).
 search          Full-text search across names, descriptions, tags, and model hints.
+namespace-new   Create a namespace (optionally proprietary or encoded).
+namespace-list  List all namespaces in the local vault.
+cert-issue      Issue an access certificate for a proprietary namespace.
+cert-list       List access certificates for a namespace.
+cert-revoke     Revoke an access certificate immediately.
 star / unstar   Star or remove a star from a prompt.
 comment         Post a comment, optionally pinned to a specific version SHA.
 collections     List collections in the local vault.
@@ -665,6 +670,124 @@ def search(
     for p in results:
         desc = f"  {p.description}" if p.description else ""
         typer.echo(f"{p.slug}{desc}")
+
+
+# --------------------------------------------------------------------------- #
+# namespace management                                                        #
+# --------------------------------------------------------------------------- #
+
+
+@app.command(name="namespace-new")
+def namespace_new(
+    name: Annotated[str, typer.Argument(help="Namespace name")],
+    description: str = typer.Option("", "-d", "--description"),
+    proprietary: bool = typer.Option(
+        False, "--proprietary", help="Restrict access with certificates"
+    ),
+    encoded: bool = typer.Option(False, "--encoded", help="Encrypt content at rest (AES-256-GCM)"),
+    vault: Path | None = typer.Option(None, "--vault"),
+) -> None:
+    """Create a namespace in the local vault."""
+    store = _store(vault)
+    ns = store.create_namespace(
+        name,
+        description=description,
+        is_proprietary=proprietary,
+        encoded=encoded,
+    )
+    store.close()
+    flags = []
+    if ns.is_proprietary:
+        flags.append("proprietary")
+    if ns.encoded:
+        flags.append("encoded")
+    suffix = f"  [{', '.join(flags)}]" if flags else ""
+    typer.echo(f"Created namespace {ns.name}{suffix}")
+
+
+@app.command(name="namespace-list")
+def namespace_list(
+    vault: Path | None = typer.Option(None, "--vault"),
+) -> None:
+    """List all namespaces in the local vault."""
+    store = _store(vault)
+    namespaces = store.list_namespaces()
+    store.close()
+    if not namespaces:
+        typer.echo("No namespaces found.")
+        return
+    for ns in namespaces:
+        flags = []
+        if ns.is_proprietary:
+            flags.append("proprietary")
+        if ns.encoded:
+            flags.append("encoded")
+        suffix = f"  [{', '.join(flags)}]" if flags else ""
+        desc = f"  {ns.description}" if ns.description else ""
+        typer.echo(f"{ns.name}{desc}{suffix}")
+
+
+# --------------------------------------------------------------------------- #
+# certificate management                                                      #
+# --------------------------------------------------------------------------- #
+
+
+@app.command(name="cert-issue")
+def cert_issue(
+    namespace: Annotated[str, typer.Argument(help="Namespace name")],
+    granted_to: str = typer.Option(..., "--to", help="Grantee identifier"),
+    vault: Path | None = typer.Option(None, "--vault"),
+) -> None:
+    """Issue a new access certificate for a proprietary namespace."""
+    store = _store(vault)
+    try:
+        cert = store.issue_certificate(namespace, granted_to)
+    except (KeyError, ValueError) as exc:
+        typer.echo(f"Error: {exc}", err=True)
+        raise typer.Exit(1)
+    store.close()
+    typer.echo(f"Certificate issued for {namespace!r} → {granted_to!r}")
+    typer.echo(f"  ID:    {cert.id}")
+    typer.echo(f"  Token: {cert.token}")
+    typer.echo("")
+    typer.echo("Save the token — it will not be shown again.")
+
+
+@app.command(name="cert-list")
+def cert_list(
+    namespace: Annotated[str, typer.Argument(help="Namespace name")],
+    vault: Path | None = typer.Option(None, "--vault"),
+) -> None:
+    """List access certificates for a namespace."""
+    store = _store(vault)
+    if store.get_namespace(namespace) is None:
+        store.close()
+        typer.echo(f"Error: namespace {namespace!r} not found", err=True)
+        raise typer.Exit(1)
+    certs = store.list_certificates(namespace)
+    store.close()
+    if not certs:
+        typer.echo("No certificates found.")
+        return
+    for c in certs:
+        revoked = "  [REVOKED]" if c.revoked else ""
+        expires = f"  expires {c.expires_at}" if c.expires_at else ""
+        typer.echo(f"{c.id}  →  {c.granted_to}{expires}{revoked}")
+
+
+@app.command(name="cert-revoke")
+def cert_revoke(
+    cert_id: Annotated[str, typer.Argument(help="Certificate ID")],
+    vault: Path | None = typer.Option(None, "--vault"),
+) -> None:
+    """Revoke an access certificate immediately."""
+    store = _store(vault)
+    found = store.revoke_certificate(cert_id)
+    store.close()
+    if not found:
+        typer.echo(f"Error: certificate {cert_id!r} not found", err=True)
+        raise typer.Exit(1)
+    typer.echo(f"Revoked certificate {cert_id}")
 
 
 # --------------------------------------------------------------------------- #

@@ -1410,3 +1410,150 @@ def test_pull_skips_tag_for_unknown_sha(tmp_path: Path) -> None:
     assert result.exit_code == 0
     # The tag for the unknown SHA was skipped — tag name should not appear in output.
     assert "v1.0" not in result.output
+
+
+# --------------------------------------------------------------------------- #
+# namespace management CLI commands                                            #
+# --------------------------------------------------------------------------- #
+
+
+def test_namespace_new_creates_namespace(tmp_path: Path) -> None:
+    result = runner.invoke(app, ["namespace-new", "acme", "--vault", str(tmp_path)])
+    assert result.exit_code == 0
+    assert "Created namespace acme" in result.output
+
+
+def test_namespace_new_proprietary(tmp_path: Path) -> None:
+    result = runner.invoke(
+        app, ["namespace-new", "secret", "--proprietary", "--vault", str(tmp_path)]
+    )
+    assert result.exit_code == 0
+    assert "proprietary" in result.output
+
+
+def test_namespace_new_encoded(tmp_path: Path) -> None:
+    result = runner.invoke(app, ["namespace-new", "enc", "--encoded", "--vault", str(tmp_path)])
+    assert result.exit_code == 0
+    assert "encoded" in result.output
+
+
+def test_namespace_new_all_flags(tmp_path: Path) -> None:
+    result = runner.invoke(
+        app,
+        ["namespace-new", "both", "--proprietary", "--encoded", "--vault", str(tmp_path)],
+    )
+    assert result.exit_code == 0
+    assert "proprietary" in result.output
+    assert "encoded" in result.output
+
+
+def test_namespace_list_empty(tmp_path: Path) -> None:
+    result = runner.invoke(app, ["namespace-list", "--vault", str(tmp_path)])
+    assert result.exit_code == 0
+    assert "No namespaces found" in result.output
+
+
+def test_namespace_list_shows_namespaces(tmp_path: Path) -> None:
+    runner.invoke(app, ["namespace-new", "alice", "--vault", str(tmp_path)])
+    runner.invoke(app, ["namespace-new", "bob", "--proprietary", "--vault", str(tmp_path)])
+    result = runner.invoke(app, ["namespace-list", "--vault", str(tmp_path)])
+    assert result.exit_code == 0
+    assert "alice" in result.output
+    assert "bob" in result.output
+    assert "proprietary" in result.output
+
+
+def test_namespace_new_with_description(tmp_path: Path) -> None:
+    result = runner.invoke(
+        app,
+        ["namespace-new", "acme", "-d", "ACME Corp", "--vault", str(tmp_path)],
+    )
+    assert result.exit_code == 0
+
+
+# --------------------------------------------------------------------------- #
+# certificate management CLI commands                                         #
+# --------------------------------------------------------------------------- #
+
+
+def test_cert_issue_success(tmp_path: Path) -> None:
+    runner.invoke(app, ["namespace-new", "priv", "--proprietary", "--vault", str(tmp_path)])
+    result = runner.invoke(app, ["cert-issue", "priv", "--to", "alice", "--vault", str(tmp_path)])
+    assert result.exit_code == 0
+    assert "Certificate issued" in result.output
+    assert "Token:" in result.output
+    assert "Save the token" in result.output
+
+
+def test_cert_issue_missing_namespace(tmp_path: Path) -> None:
+    result = runner.invoke(
+        app, ["cert-issue", "missing", "--to", "alice", "--vault", str(tmp_path)]
+    )
+    assert result.exit_code == 1
+    assert "Error" in result.output
+
+
+def test_cert_issue_public_namespace_fails(tmp_path: Path) -> None:
+    runner.invoke(app, ["namespace-new", "pub", "--vault", str(tmp_path)])
+    result = runner.invoke(app, ["cert-issue", "pub", "--to", "alice", "--vault", str(tmp_path)])
+    assert result.exit_code == 1
+    assert "Error" in result.output
+
+
+def test_cert_list_empty(tmp_path: Path) -> None:
+    runner.invoke(app, ["namespace-new", "priv", "--proprietary", "--vault", str(tmp_path)])
+    result = runner.invoke(app, ["cert-list", "priv", "--vault", str(tmp_path)])
+    assert result.exit_code == 0
+    assert "No certificates found" in result.output
+
+
+def test_cert_list_shows_certs(tmp_path: Path) -> None:
+    runner.invoke(app, ["namespace-new", "priv", "--proprietary", "--vault", str(tmp_path)])
+    runner.invoke(app, ["cert-issue", "priv", "--to", "alice", "--vault", str(tmp_path)])
+    result = runner.invoke(app, ["cert-list", "priv", "--vault", str(tmp_path)])
+    assert result.exit_code == 0
+    assert "alice" in result.output
+
+
+def test_cert_list_missing_namespace(tmp_path: Path) -> None:
+    result = runner.invoke(app, ["cert-list", "missing", "--vault", str(tmp_path)])
+    assert result.exit_code == 1
+    assert "Error" in result.output
+
+
+def test_cert_revoke_success(tmp_path: Path) -> None:
+    runner.invoke(app, ["namespace-new", "priv", "--proprietary", "--vault", str(tmp_path)])
+    issue_result = runner.invoke(
+        app, ["cert-issue", "priv", "--to", "alice", "--vault", str(tmp_path)]
+    )
+    # Extract cert ID from output
+    for line in issue_result.output.splitlines():
+        if line.strip().startswith("ID:"):
+            cert_id = line.split("ID:")[1].strip()
+            break
+    result = runner.invoke(app, ["cert-revoke", cert_id, "--vault", str(tmp_path)])
+    assert result.exit_code == 0
+    assert "Revoked" in result.output
+
+
+def test_cert_revoke_not_found(tmp_path: Path) -> None:
+    result = runner.invoke(
+        app, ["cert-revoke", "00000000-0000-0000-0000-000000000000", "--vault", str(tmp_path)]
+    )
+    assert result.exit_code == 1
+    assert "Error" in result.output
+
+
+def test_cert_list_shows_revoked(tmp_path: Path) -> None:
+    runner.invoke(app, ["namespace-new", "priv", "--proprietary", "--vault", str(tmp_path)])
+    issue_result = runner.invoke(
+        app, ["cert-issue", "priv", "--to", "alice", "--vault", str(tmp_path)]
+    )
+    for line in issue_result.output.splitlines():
+        if line.strip().startswith("ID:"):
+            cert_id = line.split("ID:")[1].strip()
+            break
+    runner.invoke(app, ["cert-revoke", cert_id, "--vault", str(tmp_path)])
+    result = runner.invoke(app, ["cert-list", "priv", "--vault", str(tmp_path)])
+    assert result.exit_code == 0
+    assert "REVOKED" in result.output

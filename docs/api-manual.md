@@ -11,35 +11,35 @@
 1. [Core concepts](#1-core-concepts)
 2. [Data models](#2-data-models)
 3. [Authentication](#3-authentication)
-4. [Meta endpoints](#4-meta-endpoints)
-5. [Prompts](#5-prompts)
-6. [Versions](#6-versions)
-7. [Branches](#7-branches)
-8. [Tags](#8-tags)
-9. [Forks](#9-forks)
-10. [Diff](#10-diff)
-11. [Stars](#11-stars)
-12. [Comments](#12-comments)
-13. [Collections](#13-collections)
-14. [Render](#14-render)
-15. [Resolve](#15-resolve)
-16. [Webhooks](#16-webhooks)
-17. [Auth tokens](#17-auth-tokens)
-18. [Error reference](#18-error-reference)
-19. [Swagger UI guide](#19-swagger-ui-guide)
+4. [Namespaces](#4-namespaces)
+5. [Meta endpoints](#5-meta-endpoints)
+6. [Prompts](#6-prompts)
+7. [Versions](#7-versions)
+8. [Branches](#8-branches)
+9. [Tags](#9-tags)
+10. [Forks](#10-forks)
+11. [Diff](#11-diff)
+12. [Stars](#12-stars)
+13. [Comments](#13-comments)
+14. [Collections](#14-collections)
+15. [Render](#15-render)
+16. [Resolve](#16-resolve)
+17. [Webhooks](#17-webhooks)
+18. [Auth tokens](#18-auth-tokens)
+19. [Error reference](#19-error-reference)
+20. [Swagger UI guide](#20-swagger-ui-guide)
 
 ---
 
 ## 1. Core concepts
 
-### Prompt
-
-A **Prompt** is the primary object in Cantica. It is not merely raw text — it is a rich, structured artifact with metadata, variables, visibility, and a full version history.
-
-A prompt is uniquely identified by its **slug**: `{namespace}/{name}`, for example `osteck/code-reviewer`.
+> This section is a quick reference. For precise definitions, SHA computation details, worked examples, and the full concept map see **[docs/concepts.md](concepts.md)**.
 
 ```mermaid
 graph LR
+    Namespace -->|"owns"| Prompt
+    Namespace -->|"owns"| Collection
+    Namespace -->|"issues"| Certificate
     Prompt -->|"has many"| Version
     Prompt -->|"has many"| Branch
     Prompt -->|"has many"| Tag
@@ -47,25 +47,30 @@ graph LR
     Prompt -->|"has many"| Star
     Prompt -->|"has many"| Comment
     Collection -->|"contains many"| Prompt
+    Branch -->|"points to HEAD"| Version
+    Tag -->|"points to"| Version
+    Version -->|"content in"| BlobStore
+    Version -->|"parent"| Version
 ```
 
 ### Namespace
 
-A **Namespace** is the owner prefix in a slug. It mirrors GitHub's `owner/repo` model:
+A **Namespace** is the owner-level scope for prompts and collections — the `osteck` part of `osteck/code-reviewer`. Namespaces are created explicitly and carry two access-control flags:
 
-- `osteck/architect` — a personal prompt owned by user `osteck`
-- `my-org/review-team` — an organisational prompt
-- `community/senior-architect` — a curated public prompt
+- **`is_proprietary`** — when `true`, every operation on this namespace's prompts, versions, tags, branches, stars, comments, forks, collections, diffs, and renders requires a valid `X-Cantica-Certificate` header. Without it the server returns `403 Forbidden`. Proprietary namespaces are excluded from global search unless a valid certificate is supplied with the search query.
+- **`encoded`** — when `true`, all version content is encrypted at rest with AES-256-GCM. Encoded namespace content is always excluded from search results.
 
-Namespaces are implicit: any `namespace` string used in a prompt's `namespace` field becomes a namespace automatically.
+### Prompt
 
-### Version
+A **Prompt** is the primary object: metadata (`description`, `tags`, `model_hints`, `license`, `visibility`) plus a full version history. Identified by its **slug**: `{namespace}/{name}`.
 
-Every time you save a prompt's content, a **Version** is created. Versions are immutable commits in a git-style object store:
+### Version (commit)
 
-- Each version has a unique **SHA** — a `sha256` hash derived from the content, parent SHA, author, message, and timestamp
-- Versions form a **linked list** via `parent_sha`, making history fully traversable
-- Content is stored separately in a **content-addressable BlobStore** (deduplicated by hash), with only `content_sha` stored in the database
+Every time prompt content is saved, a **Version** is created. Versions are immutable commits:
+
+- Each version has a unique **SHA** derived from content hash, parent SHA, author, message, and timestamp — modifications to any field produce a different SHA
+- Versions form a singly-linked list via `parent_sha` (history is fully traversable)
+- Content lives in the **blob store** (content-addressable, deduplicated); only `content_sha` is in the database
 
 ```
 main:  v1 ──► v2 ──► v3 (HEAD)
@@ -73,63 +78,58 @@ main:  v1 ──► v2 ──► v3 (HEAD)
                └──► v4 ──► v5 (HEAD of "experimental")
 ```
 
-A version can be addressed by:
-- `latest` — the most recent commit on `main`
-- `v1.3` — a named tag pointing to a specific SHA
-- `abc123f` — a specific commit SHA (full or abbreviated)
-- `experimental` — the HEAD of a named branch
-
 ### Branch
 
-A **Branch** is a named pointer to the `HEAD` of a chain of versions. This mirrors git branches. Every prompt starts with a `main` branch. You can:
+A **Branch** is a named, mutable pointer to the HEAD of a chain of versions. Every prompt starts with `main`. Branch operations:
 
-- Create a branch from any SHA
-- Commit new versions onto any branch
-- Merge one branch into another
-- Roll back a branch to any earlier ref
-
-Branch heads advance automatically when new versions are committed to them. Branches are prompt-scoped (each prompt has its own set of branches).
+- **Commit** — appends a version and advances the HEAD
+- **Create** — makes a new branch from any existing SHA
+- **Merge** — fast-forward only: moves `into_branch` HEAD to `from_branch` HEAD
+- **Rollback** — creates a new commit restoring content from a past ref (history preserved)
 
 ### Tag
 
-A **Tag** is a named, immutable pointer to a specific version SHA. Tags are used for stable releases:
+A **Tag** is a named, immutable pointer to a specific version SHA. Tags never move automatically. Use them for stable releases (`v1.0`, `production`, `stable`).
 
-- `v1.0`, `v2.3.1`, `production`, `stable` — any string is valid
-- Unlike branches, tags never move
-- A tag can be used anywhere a ref is accepted
+### Ref
+
+A **ref** resolves to a concrete version. Accepted forms, resolved in this order:
+
+| Form | Example | Resolves to |
+|---|---|---|
+| `latest` | `osteck/arch@latest` | HEAD of default branch |
+| Branch name | `osteck/arch@experimental` | Branch HEAD |
+| Tag name | `osteck/arch@v1.0` | Tagged version |
+| Full SHA | `osteck/arch@a3f1d2e4...` | Exact version |
+| SHA prefix | `osteck/arch@a3f1d2` | Unique prefix match |
+
+### Blob store
+
+Content-addressable filesystem store at `<vault>/objects/`. Files are named by the SHA-256 of their content (2-char prefix split, matching git's loose object layout). Content is deduplicated — two versions with identical text share one blob.
+
+### Variables and rendering
+
+Prompt content can contain `{{variable_name}}` placeholders. Variables are declared in the prompt's schema with `name`, `default`, `required`, and `description` fields. The **render** operation substitutes placeholder values at call time, using defaults for any not supplied and raising a 422 error for missing required variables.
 
 ### Fork
 
-A **Fork** copies an entire prompt (with its content at a specific branch HEAD) into a new `namespace/name` slug. Fork lineage is tracked:
-
-```
-community/senior-architect  ──fork──►  osteck/my-architect
-         (source_sha recorded)
-```
-
-- The fork records `source_slug` and `source_sha` at the time of forking
-- The fork becomes an independent prompt with its own version history
-- Cantica tracks all forks of a prompt via `fork_count` on the source
+A **Fork** deep-copies a prompt (full history + metadata) into a new slug. The fork is independent from the moment it is created. Lineage is tracked: `source_slug` and `source_sha` are recorded, and the source's `fork_count` is incremented.
 
 ### Collection
 
-A **Collection** is a curated, named set of prompts — like a playlist. Collections are also namespaced (`osteck/my-toolkit`), contain any number of prompt slugs, and can be used to group related prompts for a project, team, or theme.
-
-Collections do not version-control membership — they are mutable sets. To version a collection, commit a new version of a dedicated prompt describing the set.
+A **Collection** is a named, mutable set of prompts (`osteck/my-toolkit`). Collections do not version-control their membership. To version a collection, commit a dedicated prompt describing the set.
 
 ### Diff
 
-A **Diff** computes the line-by-line difference between any two versions of a prompt, addressed by any valid ref. The diff is returned as a unified diff string (the same format as `git diff`).
+**Diff** returns a unified diff string between any two refs of a prompt — the same format as `git diff`.
 
 ### Render
 
-**Render** fills in a prompt's `{{variable}}` placeholders with supplied values, falls back to defaults declared in the prompt's variable schema, and returns the final content string ready to send to a model. Required variables that are missing raise a 422 error.
-
-Variable syntax: `{{variable_name}}` within the content string.
+**Render** resolves a prompt at a given ref and substitutes all `{{variable}}` placeholders. Returns ready-to-use content.
 
 ### URI resolution
 
-Prompts can be referenced by a `cantica://` URI — the scheme used by songbook agents and the CLI:
+Prompts are addressable by `cantica://` URIs — the scheme used by songbook agents and the lock-file workflow:
 
 ```
 cantica://osteck/code-reviewer@v1.3
@@ -137,20 +137,37 @@ cantica://community/senior-architect@latest
 cantica://osteck/my-prompt@abc123f
 ```
 
-The `/v1/resolve` endpoint parses this URI and returns the resolved `Version`. An optional `remote_url` allows resolving against a remote Cantica instance (federation).
+`POST /v1/resolve` parses a URI and returns the resolved `Version`. An optional `remote_url` enables resolution against a remote Cantica instance.
 
 ### Webhook
 
-A **Webhook** is an HTTP callback registered for a list of events. When a matching event fires, Cantica sends a signed POST request to the configured URL with the event payload.
-
-Supported events:
-- `version.created` — a new version was committed
-
-The request is signed using HMAC-SHA256 with the `secret` you provide, delivered in the `X-Cantica-Signature` header.
+A **Webhook** is an HTTP callback for event delivery. Cantica POSTs a signed JSON payload (HMAC-SHA256 in `X-Cantica-Signature`) to the registered URL. Supported event: `version.created`.
 
 ---
 
 ## 2. Data models
+
+### Namespace
+
+| Field | Type | Description |
+|---|---|---|
+| `name` | `string` | Unique namespace identifier |
+| `description` | `string` | Human-readable description |
+| `is_proprietary` | `boolean` | Requires an access certificate for all operations |
+| `encoded` | `boolean` | Content encrypted at rest with AES-256-GCM |
+| `created_at` | `datetime` | ISO 8601 UTC |
+
+### Certificate
+
+| Field | Type | Description |
+|---|---|---|
+| `id` | `string (UUID)` | Unique certificate identifier |
+| `namespace` | `string` | Namespace this certificate grants access to |
+| `granted_to` | `string` | Identifier of the grantee |
+| `issued_at` | `datetime` | ISO 8601 UTC |
+| `expires_at` | `datetime \| null` | Expiry time, or `null` if non-expiring |
+| `revoked` | `boolean` | Whether the certificate has been revoked |
+| `token` | `string \| null` | HMAC-signed token — returned **once** at issuance, `null` in subsequent list responses |
 
 ### Prompt
 
@@ -265,6 +282,31 @@ X-API-Key: cntk_xxxxxxxxxxxxxxxxxxxx
 
 The raw key is shown **exactly once** at creation time ([`POST /v1/tokens`](#post-v1tokens)). Only the SHA-256 hash of the key is stored. If lost, revoke and re-create.
 
+### Namespace certificates (`X-Cantica-Certificate`)
+
+A second, orthogonal access mechanism is used for **proprietary namespaces**. This is independent of API-key auth.
+
+When a namespace is created with `is_proprietary: true`, the Cantica instance that owns the namespace can issue **certificates** — HMAC-SHA256 signed tokens that grant access to the namespace's resources. The certificate token is passed in a request header:
+
+```
+X-Cantica-Certificate: <token>
+```
+
+The token is returned exactly once when the certificate is issued ([`POST /v1/namespaces/{name}/certificates`](#post-v1namespaces-name-certificates)). Store it securely.
+
+**Endpoints that enforce certificate access:**
+
+Any endpoint that addresses a proprietary namespace — prompts, versions, tags, branches, stars, comments, forks, collections, diff, and render — returns `403 Forbidden` if the certificate header is absent or invalid.
+
+**Push/pull with certificates:**
+
+When pushing to or pulling from a proprietary remote namespace, pass the certificate with `--certificate`:
+
+```bash
+cantica push myorg/secret --remote https://cantica.example.com --certificate <token>
+cantica pull myorg/secret --remote https://cantica.example.com --certificate <token>
+```
+
 ### Swagger UI authentication
 
 1. Open [`/docs`](http://localhost:8042/docs)
@@ -274,7 +316,180 @@ The raw key is shown **exactly once** at creation time ([`POST /v1/tokens`](#pos
 
 ---
 
-## 4. Meta endpoints
+## 4. Namespaces
+
+Namespaces are the owner-level containers for prompts and collections. They are explicit objects with their own metadata and access-control flags.
+
+**CLI equivalents:**
+
+| CLI command | Equivalent API call |
+|---|---|
+| `cantica namespace-new NAME [--proprietary] [--encoded]` | `POST /v1/namespaces` |
+| `cantica namespace-list` | `GET /v1/namespaces` |
+| `cantica cert-issue NS --to GRANTEE` | `POST /v1/namespaces/{name}/certificates` |
+| `cantica cert-list NS` | `GET /v1/namespaces/{name}/certificates` |
+| `cantica cert-revoke CERT_ID` | `DELETE /v1/namespaces/{name}/certificates/{id}` |
+
+---
+
+### `GET /v1/namespaces`
+
+List all namespaces.
+
+**Response `200`** — `NamespaceResponse[]`
+
+```json
+[
+  {
+    "name": "osteck",
+    "description": "Personal prompts",
+    "is_proprietary": false,
+    "encoded": false,
+    "created_at": "2026-05-24T10:00:00Z"
+  }
+]
+```
+
+---
+
+### `POST /v1/namespaces`
+
+Create a namespace. Creating the same namespace twice is idempotent — a second `POST` with the same `name` returns `201` without modifying the existing record.
+
+**Request body**
+
+```json
+{
+  "name": "myorg",
+  "description": "My organisation's prompt library",
+  "is_proprietary": false,
+  "encoded": false
+}
+```
+
+| Field | Required | Default | Description |
+|---|---|---|---|
+| `name` | ✅ | — | Unique namespace identifier |
+| `description` | ❌ | `""` | Human-readable description |
+| `is_proprietary` | ❌ | `false` | Require a certificate for all access |
+| `encoded` | ❌ | `false` | Encrypt all version content at rest |
+
+**Response `201`** — `NamespaceResponse`
+
+> **Note:** When `encoded: true`, the server generates a 256-bit AES encryption key at creation time. This key is stored server-side and is never exposed through the API.
+
+---
+
+### `GET /v1/namespaces/{name}`
+
+Retrieve a namespace by name.
+
+**Response `200`** — `NamespaceResponse`
+**Response `404`** — Namespace not found
+
+---
+
+### `PATCH /v1/namespaces/{name}`
+
+Update namespace metadata. Supports partial update — omit fields you do not want to change.
+
+**Request body**
+
+```json
+{
+  "description": "Updated description",
+  "is_proprietary": false
+}
+```
+
+| Field | Description |
+|---|---|
+| `description` | New description |
+| `is_proprietary` | Set to `false` to **publish** a proprietary namespace (see below) |
+
+**Publishing a proprietary namespace:**
+
+Setting `is_proprietary` from `true` to `false` ("publishing") requires a valid `X-Cantica-Certificate` header for that namespace. Without it the server returns `403 Forbidden`. This prevents unauthorized actors from making a proprietary namespace public.
+
+**Response `200`** — `NamespaceResponse`
+**Response `403`** — Publishing requires a valid certificate
+**Response `404`** — Namespace not found
+
+---
+
+### `POST /v1/namespaces/{name}/certificates`
+
+Issue an access certificate for a proprietary namespace. The one-time `token` field is included in the response and must be saved by the caller — it is never retrievable again.
+
+**Request body**
+
+```json
+{
+  "granted_to": "alice",
+  "expires_at": null
+}
+```
+
+| Field | Required | Description |
+|---|---|---|
+| `granted_to` | ✅ | Identifier of the grantee (user, service, team) |
+| `expires_at` | ❌ | ISO 8601 UTC expiry; omit or `null` for non-expiring |
+
+**Response `201`** — `CertificateResponse` (with `token`)
+
+```json
+{
+  "id": "c1d2e3f4-...",
+  "namespace": "myorg",
+  "granted_to": "alice",
+  "issued_at": "2026-05-25T09:00:00Z",
+  "expires_at": null,
+  "revoked": false,
+  "token": "eyJuYW1lc3BhY2UiOiAibXlvcmcifQ.3b4c5d6e..."
+}
+```
+
+> ⚠️ **Save the `token` immediately.** It is shown only once. Revoking and re-issuing creates a new certificate with a new token.
+
+**Response `404`** — Namespace not found
+**Response `409`** — Namespace is not proprietary (certificates are only meaningful for proprietary namespaces)
+
+---
+
+### `GET /v1/namespaces/{name}/certificates`
+
+List all certificates for a namespace. The `token` field is always `null` in list responses — only the issuance response includes the token.
+
+**Response `200`** — `CertificateResponse[]` (all `token` fields are `null`)
+
+```json
+[
+  {
+    "id": "c1d2e3f4-...",
+    "namespace": "myorg",
+    "granted_to": "alice",
+    "issued_at": "2026-05-25T09:00:00Z",
+    "expires_at": null,
+    "revoked": false,
+    "token": null
+  }
+]
+```
+
+**Response `404`** — Namespace not found
+
+---
+
+### `DELETE /v1/namespaces/{name}/certificates/{cert_id}`
+
+Revoke a certificate immediately. Requests using the revoked token will receive `403 Forbidden`.
+
+**Response `204`** — Revoked
+**Response `404`** — Namespace or certificate not found
+
+---
+
+## 5. Meta endpoints
 
 ### `GET /health`
 
@@ -302,9 +517,11 @@ Service discovery document. Used by clients and federation partners to locate th
 
 ---
 
-## 5. Prompts
+## 6. Prompts
 
 Prompts are the top-level objects. A prompt holds metadata and owns a version history.
+
+> **Access control:** All endpoints in this section return `403 Forbidden` when the target namespace is proprietary and the request does not include a valid `X-Cantica-Certificate` header.
 
 ---
 
@@ -321,6 +538,13 @@ List or search prompts. Returns all prompts when called with no parameters, or a
 | `tag` | `string` | Filter to prompts that include this tag |
 | `model` | `string` | Filter to prompts that list this model hint |
 | `visibility` | `string` | Filter by visibility (`public`, `private`, `unlisted`, `team`) |
+| `cert_token` | `string` | Certificate token — includes matching proprietary namespace in search results |
+
+**Search visibility rules:**
+
+- Public, non-encoded namespaces are always searchable.
+- Proprietary namespace prompts are excluded from search unless a valid `cert_token` is provided for that namespace.
+- Encoded namespace prompts are always excluded from search results.
 
 **Response `200`** — `PromptResponse[]`
 
@@ -387,6 +611,7 @@ Create a new prompt. The `namespace/name` combination must be unique.
 | `variables` | ❌ | `[]` |
 
 **Response `201`** — `PromptResponse`
+**Response `403`** — Proprietary namespace requires certificate
 **Response `409`** — Prompt already exists
 
 ---
@@ -395,14 +620,8 @@ Create a new prompt. The `namespace/name` combination must be unique.
 
 Retrieve a single prompt by its slug.
 
-**Path parameters**
-
-| Parameter | Description |
-|---|---|
-| `namespace` | Owner namespace |
-| `name` | Prompt name |
-
 **Response `200`** — `PromptResponse`
+**Response `403`** — Proprietary namespace requires certificate
 **Response `404`** — Prompt not found
 
 ---
@@ -412,13 +631,16 @@ Retrieve a single prompt by its slug.
 Permanently delete a prompt and all its versions, branches, tags, stars, comments, and forks.
 
 **Response `204`** — Deleted
+**Response `403`** — Proprietary namespace requires certificate
 **Response `404`** — Prompt not found
 
 ---
 
-## 6. Versions
+## 7. Versions
 
 Versions are the immutable commits of a prompt's content. Each commit advances the HEAD of its branch.
+
+> **Access control:** All endpoints in this section return `403 Forbidden` when the target namespace is proprietary and the request does not include a valid `X-Cantica-Certificate` header.
 
 ---
 
@@ -490,6 +712,7 @@ Commit a new version of the prompt. Advances the branch HEAD.
 > **Import mode:** When `sha`, `parent_sha`, and `created_at` are all provided, the server calls `import_version()` instead of `commit()`, preserving the exact SHA. Useful for migrating prompts between Cantica instances without rewriting history. Returns `409` if the SHA already exists.
 
 **Response `201`** — `VersionResponse`
+**Response `403`** — Proprietary namespace requires certificate
 **Response `404`** — Prompt not found
 **Response `409`** — SHA conflict (import mode only)
 
@@ -508,13 +731,16 @@ Retrieve a specific version by ref. A ref can be:
 | `latest` | `latest` | HEAD of `main` |
 
 **Response `200`** — `VersionResponse`
+**Response `403`** — Proprietary namespace requires certificate
 **Response `404`** — Ref not found
 
 ---
 
-## 7. Branches
+## 8. Branches
 
 Branches are named pointers to version HEADs, scoped per prompt.
+
+> **Access control:** All endpoints in this section return `403 Forbidden` when the target namespace is proprietary and the request does not include a valid `X-Cantica-Certificate` header.
 
 ```mermaid
 gitGraph
@@ -570,6 +796,7 @@ Create a new branch starting from a specific commit SHA.
 | `from_sha` | ✅ | SHA to branch from |
 
 **Response `201`** — `BranchResponse`
+**Response `403`** — Proprietary namespace requires certificate
 **Response `404`** — Prompt or SHA not found
 
 ---
@@ -593,6 +820,7 @@ Roll a branch back to any previous ref. Creates a new commit that restores the c
 | `branch` | ❌ | `"main"` | Branch to roll back |
 
 **Response `200`** — `VersionResponse` (the new rollback commit)
+**Response `403`** — Proprietary namespace requires certificate
 **Response `404`** — Ref not found
 
 ---
@@ -616,14 +844,17 @@ Merge one branch into another. Takes the HEAD content of `from_branch` and commi
 | `into_branch` | ❌ | `"main"` | Target branch |
 
 **Response `200`** — `MergeResponse` (a `VersionResponse` for the new merge commit)
+**Response `403`** — Proprietary namespace requires certificate
 **Response `404`** — Branch or prompt not found
 **Response `409`** — Nothing to merge (branches already at same HEAD)
 
 ---
 
-## 8. Tags
+## 9. Tags
 
 Tags are immutable named pointers to specific version SHAs. Use them to mark stable releases.
+
+> **Access control:** All endpoints in this section return `403 Forbidden` when the target namespace is proprietary and the request does not include a valid `X-Cantica-Certificate` header.
 
 ---
 
@@ -665,13 +896,16 @@ Create a new tag pointing to a specific SHA.
 | `sha` | ✅ | Version SHA to tag |
 
 **Response `201`** — `TagResponse`
+**Response `403`** — Proprietary namespace requires certificate
 **Response `404`** — Prompt or SHA not found
 
 ---
 
-## 9. Forks
+## 10. Forks
 
 Forking copies a prompt's content at a branch HEAD into a new `namespace/name` slug. The fork is a fully independent prompt with tracked lineage.
+
+> **Access control:** Forking a proprietary namespace prompt or forking into a proprietary namespace requires a valid `X-Cantica-Certificate` header; otherwise `403 Forbidden` is returned.
 
 ```mermaid
 graph LR
@@ -712,6 +946,7 @@ Fork a prompt into a new slug.
 }
 ```
 
+**Response `403`** — Proprietary namespace requires certificate
 **Response `404`** — Source prompt not found
 **Response `409`** — Destination slug already exists
 
@@ -722,13 +957,16 @@ Fork a prompt into a new slug.
 List all known forks of a prompt.
 
 **Response `200`** — `ForkResponse[]`
+**Response `403`** — Proprietary namespace requires certificate
 **Response `404`** — Prompt not found
 
 ---
 
-## 10. Diff
+## 11. Diff
 
 Compute the unified diff between any two versions of a prompt.
+
+> **Access control:** Returns `403 Forbidden` when the target namespace is proprietary and the request does not include a valid `X-Cantica-Certificate` header.
 
 ---
 
@@ -759,13 +997,16 @@ Both `ref1` and `ref2` accept any valid ref (tag, SHA, branch name, `latest`).
 
 The `diff` field is a standard unified diff string with `---`/`+++` headers and `@@` context hunks. Empty string if the versions are identical.
 
+**Response `403`** — Proprietary namespace requires certificate
 **Response `404`** — Prompt or ref not found
 
 ---
 
-## 11. Stars
+## 12. Stars
 
 Stars are a lightweight social signal — a user can star any prompt they find useful.
+
+> **Access control:** All endpoints in this section return `403 Forbidden` when the target namespace is proprietary and the request does not include a valid `X-Cantica-Certificate` header.
 
 ---
 
@@ -784,6 +1025,7 @@ Star a prompt. The acting user's ID is taken from the auth context (or `"local"`
 }
 ```
 
+**Response `403`** — Proprietary namespace requires certificate
 **Response `404`** — Prompt not found
 
 ---
@@ -793,6 +1035,7 @@ Star a prompt. The acting user's ID is taken from the auth context (or `"local"`
 Remove a star from a prompt.
 
 **Response `204`** — Unstarred
+**Response `403`** — Proprietary namespace requires certificate
 **Response `404`** — Prompt not found or not starred
 
 ---
@@ -802,13 +1045,16 @@ Remove a star from a prompt.
 List all stargazers for a prompt.
 
 **Response `200`** — `StarResponse[]`
+**Response `403`** — Proprietary namespace requires certificate
 **Response `404`** — Prompt not found
 
 ---
 
-## 12. Comments
+## 13. Comments
 
 Comments can be left on a prompt in general, or pinned to a specific version SHA.
+
+> **Access control:** All endpoints in this section return `403 Forbidden` when the target namespace is proprietary and the request does not include a valid `X-Cantica-Certificate` header.
 
 ---
 
@@ -843,6 +1089,7 @@ Add a comment. The `version_sha` field optionally pins the comment to a specific
 }
 ```
 
+**Response `403`** — Proprietary namespace requires certificate
 **Response `404`** — Prompt not found
 
 ---
@@ -858,6 +1105,7 @@ List comments on a prompt, optionally filtered to a specific version.
 | `version_sha` | `string` | Only return comments pinned to this SHA |
 
 **Response `200`** — `CommentResponse[]`
+**Response `403`** — Proprietary namespace requires certificate
 **Response `404`** — Prompt not found
 
 ---
@@ -867,12 +1115,15 @@ List comments on a prompt, optionally filtered to a specific version.
 Delete a comment by its ID.
 
 **Response `204`** — Deleted
+**Response `403`** — Proprietary namespace requires certificate
 
 ---
 
-## 13. Collections
+## 14. Collections
 
 Collections are named, curated sets of prompts grouped under a namespace.
+
+> **Access control:** All endpoints in this section return `403 Forbidden` when the target namespace is proprietary and the request does not include a valid `X-Cantica-Certificate` header.
 
 ---
 
@@ -897,6 +1148,7 @@ Create a new collection.
 | `description` | ❌ | `""` | Human-readable description |
 
 **Response `201`** — `CollectionResponse`
+**Response `403`** — Proprietary namespace requires certificate
 **Response `409`** — Collection name already exists in this namespace
 
 ---
@@ -947,6 +1199,7 @@ Get a collection with its full list of member prompts.
 }
 ```
 
+**Response `403`** — Proprietary namespace requires certificate
 **Response `404`** — Collection not found
 
 ---
@@ -956,6 +1209,7 @@ Get a collection with its full list of member prompts.
 Delete a collection. Member prompts are not affected.
 
 **Response `204`** — Deleted
+**Response `403`** — Proprietary namespace requires certificate
 **Response `404`** — Collection not found
 
 ---
@@ -973,6 +1227,7 @@ Add a prompt to a collection by its slug.
 ```
 
 **Response `204`** — Added
+**Response `403`** — Proprietary namespace requires certificate
 **Response `404`** — Collection or prompt not found
 
 ---
@@ -982,13 +1237,16 @@ Add a prompt to a collection by its slug.
 Remove a prompt from a collection.
 
 **Response `204`** — Removed
+**Response `403`** — Proprietary namespace requires certificate
 **Response `404`** — Collection or prompt not found
 
 ---
 
-## 14. Render
+## 15. Render
 
 Render resolves a prompt at a specific ref and fills in all `{{variable}}` placeholders.
+
+> **Access control:** Returns `403 Forbidden` when the target namespace is proprietary and the request does not include a valid `X-Cantica-Certificate` header.
 
 ---
 
@@ -1032,12 +1290,13 @@ Render resolves a prompt at a specific ref and fills in all `{{variable}}` place
 }
 ```
 
+**Response `403`** — Proprietary namespace requires certificate
 **Response `404`** — Prompt or ref not found
 **Response `422`** — Missing required variable or invalid slug format
 
 ---
 
-## 15. Resolve
+## 16. Resolve
 
 Resolve a `cantica://` URI to a concrete `Version`. Supports both local and remote (federated) resolution.
 
@@ -1075,7 +1334,7 @@ cantica://  {namespace} / {name} @ {ref}
 
 ---
 
-## 16. Webhooks
+## 17. Webhooks
 
 Webhooks deliver signed HTTP POST payloads to a configured URL when events occur.
 
@@ -1154,7 +1413,7 @@ Delete a webhook by its ID.
 
 ---
 
-## 17. Auth tokens
+## 18. Auth tokens
 
 API tokens are long-lived keys for authenticating requests when `CANTICA_AUTH_ENABLED=true`. Only the SHA-256 hash of each key is stored; the raw key is returned exactly once at creation.
 
@@ -1213,7 +1472,7 @@ Revoke a token by its ID. The token is immediately invalid.
 
 ---
 
-## 18. Error reference
+## 19. Error reference
 
 All errors follow a consistent JSON envelope:
 
@@ -1225,14 +1484,15 @@ All errors follow a consistent JSON envelope:
 |---|---|---|
 | `400` | Bad Request | Malformed JSON body |
 | `401` | Unauthorized | Missing or invalid `X-API-Key` (when auth is enabled) |
-| `404` | Not Found | Prompt, version, branch, tag, collection, or webhook does not exist |
-| `409` | Conflict | Duplicate name (prompt, collection); SHA conflict on import; nothing to merge |
+| `403` | Forbidden | Proprietary namespace accessed without a valid `X-Cantica-Certificate`; revoked certificate; publishing proprietary namespace without certificate |
+| `404` | Not Found | Prompt, version, branch, tag, collection, namespace, certificate, or webhook does not exist |
+| `409` | Conflict | Duplicate name (prompt, collection); SHA conflict on import; nothing to merge; certificate issued for non-proprietary namespace |
 | `422` | Unprocessable | Invalid slug format; missing required render variable; malformed URI |
 | `502` | Bad Gateway | Remote Cantica instance unreachable (resolve with `remote_url`) |
 
 ---
 
-## 19. Swagger UI guide
+## 20. Swagger UI guide
 
 Cantica ships with two interactive API explorers.
 
@@ -1251,7 +1511,7 @@ The Swagger UI lets you execute live API calls directly from the browser.
    - Click the **Authorize** 🔒 button at the top right
    - Paste your API key into the `X-API-Key` input
    - Click **Authorize**, then **Close**
-3. **Find an endpoint** — endpoints are grouped by tag (Prompts, Versions, Branches, etc.)
+3. **Find an endpoint** — endpoints are grouped by tag (Namespaces, Prompts, Versions, Branches, etc.)
 4. **Click the endpoint** to expand it
 5. Click **Try it out** to enable the input fields
 6. Fill in path parameters, query parameters, and the request body

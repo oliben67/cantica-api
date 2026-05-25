@@ -840,9 +840,7 @@ class VersionStore:
             return []
 
         shas = [ver.sha for ver, _ in rows]
-        tag_rows = self.session.execute(
-            select(TagOrm).where(TagOrm.sha.in_(shas))
-        ).scalars().all()
+        tag_rows = self.session.execute(select(TagOrm).where(TagOrm.sha.in_(shas))).scalars().all()
         tags_by_sha: dict[str, list[str]] = {}
         for t in tag_rows:
             tags_by_sha.setdefault(t.sha, []).append(t.name)

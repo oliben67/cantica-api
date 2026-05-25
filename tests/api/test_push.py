@@ -15,7 +15,9 @@ def _ndjson(*records: dict) -> bytes:
     return b"".join((json.dumps(r) + "\n").encode() for r in records)
 
 
-def _version_sha(content: str, author: str, message: str, created_at: str, parent_sha: str | None = None) -> str:
+def _version_sha(
+    content: str, author: str, message: str, created_at: str, parent_sha: str | None = None
+) -> str:
     content_sha = hashlib.sha256(content.encode()).hexdigest()
     commit_data = f"commit\n{content_sha}\n{parent_sha or ''}\n{author}\n{message}\n{created_at}"
     return hashlib.sha256(commit_data.encode()).hexdigest()
@@ -29,7 +31,17 @@ def _version_sha(content: str, author: str, message: str, created_at: str, paren
 def test_push_namespace_and_prompt(client: TestClient) -> None:
     data = _ndjson(
         {"type": "namespace", "name": "acme", "description": "ACME"},
-        {"type": "prompt", "namespace": "acme", "name": "hello", "description": "", "tags": [], "model_hints": [], "license": "MIT", "visibility": "public", "variables": []},
+        {
+            "type": "prompt",
+            "namespace": "acme",
+            "name": "hello",
+            "description": "",
+            "tags": [],
+            "model_hints": [],
+            "license": "MIT",
+            "visibility": "public",
+            "variables": [],
+        },
     )
     resp = client.post("/v1/push", content=data, headers={"Content-Type": "application/x-ndjson"})
     assert resp.status_code == 200
@@ -43,8 +55,30 @@ def test_push_version_and_tag(client: TestClient) -> None:
     sha = _version_sha("Hello", "alice", "Initial", created_at)
     data = _ndjson(
         {"type": "namespace", "name": "acme", "description": ""},
-        {"type": "prompt", "namespace": "acme", "name": "hello", "description": "", "tags": [], "model_hints": [], "license": "MIT", "visibility": "public", "variables": []},
-        {"type": "version", "namespace": "acme", "name": "hello", "sha": sha, "content": "Hello", "message": "Initial", "author": "alice", "branch": "main", "parent_sha": None, "created_at": created_at, "variables": []},
+        {
+            "type": "prompt",
+            "namespace": "acme",
+            "name": "hello",
+            "description": "",
+            "tags": [],
+            "model_hints": [],
+            "license": "MIT",
+            "visibility": "public",
+            "variables": [],
+        },
+        {
+            "type": "version",
+            "namespace": "acme",
+            "name": "hello",
+            "sha": sha,
+            "content": "Hello",
+            "message": "Initial",
+            "author": "alice",
+            "branch": "main",
+            "parent_sha": None,
+            "created_at": created_at,
+            "variables": [],
+        },
         {"type": "tag", "namespace": "acme", "name": "hello", "tag_name": "v1.0", "sha": sha},
     )
     resp = client.post("/v1/push", content=data, headers={"Content-Type": "application/x-ndjson"})
@@ -54,6 +88,7 @@ def test_push_version_and_tag(client: TestClient) -> None:
 
 
 def test_push_skips_existing_prompt(client: TestClient, vault) -> None:
+    # Local imports:
     from cantica.services.version_store import VersionStore
 
     store = VersionStore(vault)
@@ -62,7 +97,17 @@ def test_push_skips_existing_prompt(client: TestClient, vault) -> None:
 
     data = _ndjson(
         {"type": "namespace", "name": "acme", "description": ""},
-        {"type": "prompt", "namespace": "acme", "name": "hello", "description": "", "tags": [], "model_hints": [], "license": "MIT", "visibility": "public", "variables": []},
+        {
+            "type": "prompt",
+            "namespace": "acme",
+            "name": "hello",
+            "description": "",
+            "tags": [],
+            "model_hints": [],
+            "license": "MIT",
+            "visibility": "public",
+            "variables": [],
+        },
     )
     resp = client.post("/v1/push", content=data, headers={"Content-Type": "application/x-ndjson"})
     assert resp.status_code == 200
@@ -70,6 +115,7 @@ def test_push_skips_existing_prompt(client: TestClient, vault) -> None:
 
 
 def test_push_skips_existing_version(client: TestClient, vault) -> None:
+    # Local imports:
     from cantica.services.version_store import VersionStore
 
     store = VersionStore(vault)
@@ -80,8 +126,30 @@ def test_push_skips_existing_version(client: TestClient, vault) -> None:
     created_at = v.created_at.isoformat()
     data = _ndjson(
         {"type": "namespace", "name": "acme", "description": ""},
-        {"type": "prompt", "namespace": "acme", "name": "hello", "description": "", "tags": [], "model_hints": [], "license": "MIT", "visibility": "public", "variables": []},
-        {"type": "version", "namespace": "acme", "name": "hello", "sha": v.sha, "content": "Hi", "message": "msg", "author": "alice", "branch": "main", "parent_sha": None, "created_at": created_at, "variables": []},
+        {
+            "type": "prompt",
+            "namespace": "acme",
+            "name": "hello",
+            "description": "",
+            "tags": [],
+            "model_hints": [],
+            "license": "MIT",
+            "visibility": "public",
+            "variables": [],
+        },
+        {
+            "type": "version",
+            "namespace": "acme",
+            "name": "hello",
+            "sha": v.sha,
+            "content": "Hi",
+            "message": "msg",
+            "author": "alice",
+            "branch": "main",
+            "parent_sha": None,
+            "created_at": created_at,
+            "variables": [],
+        },
     )
     resp = client.post("/v1/push", content=data, headers={"Content-Type": "application/x-ndjson"})
     assert resp.status_code == 200
@@ -122,7 +190,19 @@ def test_push_version_missing_prompt_returns_422(client: TestClient) -> None:
     created_at = datetime(2024, 1, 1, 12, 0, 0, tzinfo=UTC).isoformat()
     sha = _version_sha("Hi", "alice", "msg", created_at)
     data = _ndjson(
-        {"type": "version", "namespace": "missing", "name": "prompt", "sha": sha, "content": "Hi", "message": "msg", "author": "alice", "branch": "main", "parent_sha": None, "created_at": created_at, "variables": []},
+        {
+            "type": "version",
+            "namespace": "missing",
+            "name": "prompt",
+            "sha": sha,
+            "content": "Hi",
+            "message": "msg",
+            "author": "alice",
+            "branch": "main",
+            "parent_sha": None,
+            "created_at": created_at,
+            "variables": [],
+        },
     )
     resp = client.post("/v1/push", content=data, headers={"Content-Type": "application/x-ndjson"})
     assert resp.status_code == 422
@@ -138,6 +218,7 @@ def test_push_tag_missing_prompt_skipped(client: TestClient) -> None:
 
 
 def test_push_tag_already_exists_skipped(client: TestClient, vault) -> None:
+    # Local imports:
     from cantica.services.version_store import VersionStore
 
     store = VersionStore(vault)

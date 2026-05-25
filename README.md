@@ -129,7 +129,61 @@ cantica push osteck/architect --remote http://cantica.example.com
 
 # Pull a prompt from a remote
 cantica pull community/architect --remote http://cantica.example.com
+
+# Push/pull to/from a proprietary namespace (requires a certificate token)
+cantica push myorg/secret-prompt --remote http://cantica.example.com --certificate <token>
+cantica pull myorg/secret-prompt --remote http://cantica.example.com --certificate <token>
 ```
+
+### 12 — Namespace access control
+
+```bash
+# Create a proprietary namespace — prompts require a certificate to access
+cantica namespace-new myorg --proprietary
+
+# Create an encoded namespace — content is encrypted at rest (AES-256-GCM)
+cantica namespace-new private-vault --encoded
+
+# List all namespaces
+cantica namespace-list
+
+# Issue an access certificate for a collaborator
+cantica cert-issue myorg --to alice
+# Prints the one-time token — save it immediately:
+#   ID:    c1d2e3f4-...
+#   Token: eyJuYW1lc3BhY2UiOiJteW9yZyJ9.abc123...
+
+# List certificates for a namespace
+cantica cert-list myorg
+
+# Revoke a certificate
+cantica cert-revoke c1d2e3f4-...
+
+# Use a certificate when accessing prompts on a proprietary remote
+cantica push myorg/secret --remote http://cantica.example.com --certificate <token>
+cantica pull myorg/secret --remote http://cantica.example.com --certificate <token>
+```
+
+---
+
+## Core concepts
+
+| Concept | One-line summary |
+|---|---|
+| **Namespace** | Owner-level scope (`osteck`, `my-org`). Can be *proprietary* (certificate-gated) or *encoded* (AES-256-GCM at rest). |
+| **Prompt** | The primary object — metadata + full version history, identified by `namespace/name`. |
+| **Version** | An immutable commit. SHA computed from content, parent SHA, author, message, and timestamp — exactly like git. |
+| **Branch** | A named, mutable pointer to a version HEAD. Every prompt starts with `main`. Supports create, merge (fast-forward), and rollback. |
+| **Tag** | A named, immutable pointer to a specific SHA. Use for stable releases (`v1.0`, `production`). |
+| **Ref** | Anything that resolves to a version: `latest`, a tag name, a branch name, a full SHA, or a SHA prefix. |
+| **Blob store** | Content-addressable filesystem store for prompt text — separate from the DB, deduplicated by SHA-256. |
+| **Variable** | `{{name}}` placeholder in prompt content. Declared with a schema (required, default, description) and substituted at render time. |
+| **Fork** | A deep copy of a prompt with full history, tracked lineage, and independent future commits. |
+| **Collection** | A curated, mutable set of prompts — like a playlist. No version control on membership. |
+| **Certificate** | HMAC-SHA256 signed token granting access to a proprietary namespace. Issued once, revocable. |
+| **Visibility** | Per-prompt discovery flag: `public` · `private` · `unlisted` · `team`. |
+
+→ **[Full concept definitions with examples → docs/concepts.md](docs/concepts.md)**
 
 ---
 
@@ -173,6 +227,15 @@ Full interactive docs at `/docs` when the server is running.
 
 ```
 GET    /health
+
+GET    /v1/namespaces                                   list namespaces
+POST   /v1/namespaces                                   create namespace
+GET    /v1/namespaces/{name}                            get namespace
+PATCH  /v1/namespaces/{name}                            update namespace
+POST   /v1/namespaces/{name}/certificates               issue access certificate
+GET    /v1/namespaces/{name}/certificates               list certificates
+DELETE /v1/namespaces/{name}/certificates/{id}          revoke certificate
+
 GET    /v1/prompts                              list / search prompts
 POST   /v1/prompts                              create prompt
 GET    /v1/prompts/{ns}/{name}                  get prompt
@@ -199,6 +262,8 @@ POST   /v1/tokens                               create API token
 GET    /v1/tokens                               list tokens
 DELETE /v1/tokens/{id}                          revoke token
 ```
+
+> **Proprietary namespaces:** all `/v1/prompts/{ns}/...` endpoints return `403 Forbidden` when the namespace is proprietary and the request does not include a valid `X-Cantica-Certificate` header.
 
 ---
 
@@ -244,3 +309,4 @@ task --list         # all available tasks
 | 5 — Web UI | React SPA (Vite + Tailwind + shadcn/ui) | ✅ Done |
 | 6 — songbook Integration | `cantica://` URI resolution, lock file | ✅ Done |
 | 7 — Cloud | PostgreSQL, production Docker, federation webhooks | ✅ Done |
+| 8 — Access Control | Proprietary namespaces, access certificates, AES-256-GCM encoding | ✅ Done |

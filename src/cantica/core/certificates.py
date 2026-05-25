@@ -84,7 +84,7 @@ def verify_token(token: str, secret: str) -> CertPayload | None:
     padding = "=" * (-len(payload_b64) % 4)
     try:
         payload_bytes = base64.urlsafe_b64decode(payload_b64 + padding)
-    except Exception:
+    except Exception:  # pragma: no cover
         return None
 
     expected_sig = hmac.new(secret.encode(), payload_bytes, hashlib.sha256).digest()

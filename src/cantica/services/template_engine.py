@@ -44,6 +44,7 @@ class TemplateEngine:
 
     def render(self, content: str, variables: dict[str, str]) -> str:
         """Substitute all ``{{variable}}`` placeholders in *content* using *variables*."""
+
         def _replace(match: re.Match[str]) -> str:
             """Replace a single ``{{var}}`` match with its value from *variables*."""
             key = match.group(1)

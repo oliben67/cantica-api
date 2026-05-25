@@ -3,10 +3,11 @@ from __future__ import annotations
 
 # Standard library imports:
 import json
+from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import AsyncIterator
+from typing import Any
 
 # Third party imports:
 import pytest
@@ -457,8 +458,8 @@ async def test_export_to_json_since_filter(shim: CanticaShim) -> None:
     all_lines = [line async for line in shim.export.to_json()]
     since_v1 = [line async for line in shim.export.to_json(since=v1.created_at)]
 
-    all_versions = [json.loads(l) for l in all_lines if json.loads(l)["type"] == "version"]
-    since_versions = [json.loads(l) for l in since_v1 if json.loads(l)["type"] == "version"]
+    all_versions = [json.loads(ln) for ln in all_lines if json.loads(ln)["type"] == "version"]
+    since_versions = [json.loads(ln) for ln in since_v1 if json.loads(ln)["type"] == "version"]
 
     assert len(all_versions) == 2
     assert len(since_versions) == 1
@@ -538,6 +539,7 @@ async def test_export_ingest_invalid_json(shim: CanticaShim) -> None:
 
 
 async def test_export_ingest_version_missing_prompt(shim: CanticaShim) -> None:
+    # Standard library imports:
     import hashlib
 
     content = "Hi"
@@ -548,19 +550,21 @@ async def test_export_ingest_version_missing_prompt(shim: CanticaShim) -> None:
     commit_data = f"commit\n{content_sha}\n\n{author}\n{message}\n{created_at.isoformat()}"
     sha = hashlib.sha256(commit_data.encode()).hexdigest()
 
-    rec = json.dumps({
-        "type": "version",
-        "namespace": "missing",
-        "name": "prompt",
-        "sha": sha,
-        "content": content,
-        "message": message,
-        "author": author,
-        "branch": "main",
-        "parent_sha": None,
-        "created_at": created_at.isoformat(),
-        "variables": [],
-    })
+    rec = json.dumps(
+        {
+            "type": "version",
+            "namespace": "missing",
+            "name": "prompt",
+            "sha": sha,
+            "content": content,
+            "message": message,
+            "author": author,
+            "branch": "main",
+            "parent_sha": None,
+            "created_at": created_at.isoformat(),
+            "variables": [],
+        }
+    )
 
     async def _stream_rec() -> AsyncIterator[bytes]:
         yield (rec + "\n").encode()
@@ -597,6 +601,7 @@ def test_push_endpoint_via_http(tmp_path: Path) -> None:
         target.mount(app, prefix="/api/v1")
 
         export_data = b""
+        # Standard library imports:
         import asyncio
 
         async def _collect() -> bytes:
@@ -629,6 +634,7 @@ def test_push_endpoint_via_http(tmp_path: Path) -> None:
 
 
 async def test_export_push_calls_httpx(shim: CanticaShim) -> None:
+    # Standard library imports:
     from unittest.mock import AsyncMock, MagicMock, patch
 
     await shim.prompts.create("acme", "hello")
@@ -663,6 +669,7 @@ async def test_export_push_calls_httpx(shim: CanticaShim) -> None:
 
 
 async def test_prompts_create_with_visibility_enum(shim: CanticaShim) -> None:
+    # Local imports:
     from cantica.models import Visibility
 
     p = await shim.prompts.create("acme", "enum-vis", visibility=Visibility.private)
@@ -691,13 +698,15 @@ async def test_export_ingest_empty_lines(shim: CanticaShim) -> None:
 
 
 async def test_export_ingest_tag_missing_prompt(shim: CanticaShim) -> None:
-    rec = json.dumps({
-        "type": "tag",
-        "namespace": "missing",
-        "name": "prompt",
-        "tag_name": "v1.0",
-        "sha": "abc",
-    })
+    rec = json.dumps(
+        {
+            "type": "tag",
+            "namespace": "missing",
+            "name": "prompt",
+            "tag_name": "v1.0",
+            "sha": "abc",
+        }
+    )
 
     async def _s() -> AsyncIterator[bytes]:
         yield (rec + "\n").encode()
@@ -712,13 +721,15 @@ async def test_export_ingest_tag_already_exists(shim: CanticaShim) -> None:
     v = await shim.versions.commit("acme", "hello", "Hi", "msg", "alice")
     await shim.tags.create("acme", "hello", "v1.0", v.sha)
 
-    rec = json.dumps({
-        "type": "tag",
-        "namespace": "acme",
-        "name": "hello",
-        "tag_name": "v1.0",
-        "sha": v.sha,
-    })
+    rec = json.dumps(
+        {
+            "type": "tag",
+            "namespace": "acme",
+            "name": "hello",
+            "tag_name": "v1.0",
+            "sha": v.sha,
+        }
+    )
 
     async def _s() -> AsyncIterator[bytes]:
         yield (rec + "\n").encode()
@@ -726,3 +737,73 @@ async def test_export_ingest_tag_already_exists(shim: CanticaShim) -> None:
     result = await shim.export.ingest(_s())
     assert result["errors"] == []
     assert result["skipped"] == 1
+
+
+# ---------------------------------------------------------------------------
+# namespace access control — shim
+# ---------------------------------------------------------------------------
+
+
+async def test_namespaces_list_and_update(shim: CanticaShim) -> None:
+    await shim.namespaces.create("ns1")
+    await shim.namespaces.create("ns2")
+    names = {ns.name for ns in await shim.namespaces.list()}
+    assert {"ns1", "ns2"}.issubset(names)
+
+    updated = await shim.namespaces.update("ns1", description="updated")
+    assert updated.description == "updated"
+
+
+async def test_namespaces_create_proprietary_and_encoded(shim: CanticaShim) -> None:
+    ns = await shim.namespaces.create("prop", is_proprietary=True, encoded=True)
+    assert ns.is_proprietary is True
+    assert ns.encoded is True
+
+
+async def test_certificates_issue_list_revoke(shim: CanticaShim) -> None:
+    await shim.namespaces.create("prop", is_proprietary=True)
+    cert = await shim.certificates.issue("prop", "alice")
+    assert cert.token is not None
+    assert cert.namespace == "prop"
+
+    certs = await shim.certificates.list("prop")
+    assert len(certs) == 1
+    assert certs[0].token is None  # not returned in list
+
+    ok = await shim.certificates.revoke(cert.id)
+    assert ok is True
+
+    not_found = await shim.certificates.revoke("nonexistent-id")
+    assert not_found is False
+
+
+async def test_export_push_with_cert_token(shim: CanticaShim) -> None:
+    """push() must include X-Cantica-Certificate header when cert_token is provided."""
+    # Standard library imports:
+    from unittest.mock import AsyncMock, MagicMock, patch
+
+    await shim.prompts.create("acme", "hello")
+    await shim.versions.commit("acme", "hello", "Hi", "init", "alice")
+
+    captured_headers: dict[str, str] = {}
+    mock_resp = MagicMock()
+    mock_resp.raise_for_status = MagicMock()
+    mock_resp.json = MagicMock(return_value={"imported": 1, "skipped": 0})
+
+    async def _fake_post(
+        url: str, *, content: object, headers: object, timeout: object
+    ) -> MagicMock:
+        captured_headers.update(headers)  # type: ignore[arg-type]
+        async for _ in content:
+            pass
+        return mock_resp
+
+    mock_client = AsyncMock()
+    mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+    mock_client.__aexit__ = AsyncMock(return_value=False)
+    mock_client.post = _fake_post
+
+    with patch("httpx.AsyncClient", return_value=mock_client):
+        await shim.export.push("http://remote/api/v1", "mykey", cert_token="mytoken")
+
+    assert captured_headers.get("X-Cantica-Certificate") == "mytoken"
