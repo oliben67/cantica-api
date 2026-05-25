@@ -4,6 +4,8 @@ version: '3'
 vars:
   SRC:   src/cantica
   TESTS: tests
+  # Strip any active venv from another project so uv always uses the local .venv.
+  UV: env -u VIRTUAL_ENV uv
 
 # ── Default ────────────────────────────────────────────────────────────────
 tasks:
@@ -24,73 +26,73 @@ tasks:
   # ── Testing ──────────────────────────────────────────────────────────────
   test:
     desc: Run the full test suite with coverage (≥ 99 % required)
-    cmd: uv run pytest
+    cmd: "{{.UV}} run pytest"
 
   test:fast:
     desc: Run tests without coverage for quick iteration
-    cmd: uv run pytest --no-cov -q
+    cmd: "{{.UV}} run pytest --no-cov -q"
 
   test:verbose:
     desc: Run tests with full verbose output
-    cmd: uv run pytest -v
+    cmd: "{{.UV}} run pytest -v"
 
   test:one:
     desc: "Run tests matching a name pattern   [usage: task test:one -- session]"
-    cmd: uv run pytest -k "{{.CLI_ARGS}}" -v
+    cmd: "{{.UV}} run pytest -k \"{{.CLI_ARGS}}\" -v"
 
   test:file:
     desc: "Run a single test file              [usage: task test:file -- tests/test_cli.py]"
-    cmd: uv run pytest {{.CLI_ARGS}} -v
+    cmd: "{{.UV}} run pytest {{.CLI_ARGS}} -v"
 
   test:cov:html:
     desc: Generate an HTML coverage report in htmlcov/ and print the path
     cmds:
-      - uv run pytest --cov-report=html --cov-report=term-missing
+      - "{{.UV}} run pytest --cov-report=html --cov-report=term-missing"
       - cmd: echo "Report → htmlcov/index.html"
         silent: true
 
   test:cov:xml:
     desc: Generate an XML coverage report (for CI badge / Codecov)
-    cmd: uv run pytest --cov-report=xml --cov-report=term-missing
+    cmd: "{{.UV}} run pytest --cov-report=xml --cov-report=term-missing"
 
   # ── Linting ──────────────────────────────────────────────────────────────
   lint:
     desc: Check source and tests with ruff
-    cmd: uv run ruff check {{.SRC}} {{.TESTS}}
+    cmd: "{{.UV}} run ruff check {{.SRC}} {{.TESTS}}"
 
   lint:fix:
     desc: Check source and tests with ruff, auto-fix where possible
-    cmd: uv run ruff check --fix {{.SRC}} {{.TESTS}}
+    cmd: "{{.UV}} run ruff check --fix {{.SRC}} {{.TESTS}}"
 
   lint:watch:
     desc: Watch and re-lint on every file change
-    cmd: uv run ruff check --watch {{.SRC}} {{.TESTS}}
+    cmd: "{{.UV}} run ruff check --watch {{.SRC}} {{.TESTS}}"
 
   # ── Formatting ───────────────────────────────────────────────────────────
   format:
     desc: Format all Python files in-place
-    cmd: uv run ruff format {{.SRC}} {{.TESTS}}
+    cmd: "{{.UV}} run ruff format {{.SRC}} {{.TESTS}}"
 
   format:check:
     desc: Check formatting without modifying files (used in CI)
-    cmd: uv run ruff format --check {{.SRC}} {{.TESTS}}
+    cmd: "{{.UV}} run ruff format --check {{.SRC}} {{.TESTS}}"
 
   format:diff:
     desc: Show formatting changes that would be applied
-    cmd: uv run ruff format --diff {{.SRC}} {{.TESTS}}
+    cmd: "{{.UV}} run ruff format --diff {{.SRC}} {{.TESTS}}"
 
   # ── Type checking ─────────────────────────────────────────────────────────
   typecheck:
     desc: Run mypy static type checker on the library
-    cmd: uv run mypy {{.SRC}}
+    cmd: "{{.UV}} run mypy {{.SRC}}"
 
   typecheck:strict:
     desc: Run mypy with --strict (more thorough but may require additional annotations)
-    cmd: uv run mypy --strict {{.SRC}}
+    cmd: "{{.UV}} run mypy --strict {{.SRC}}"
 
   typecheck:report:
     desc: Generate an HTML type-checking report in mypy-report/
-    cmd: uv run mypy {{.SRC}} --html-report mypy-report
+    cmd: "{{.UV}} run mypy {{.SRC}} --html-report mypy-report"
 
   # ── Combined workflows ────────────────────────────────────────────────────
   check:
@@ -146,15 +148,15 @@ tasks:
   # ── Serve ─────────────────────────────────────────────────────────────────
   serve:
     desc: Start the Cantica API server (development mode with auto-reload)
-    cmd: uv run cantica serve --reload
+    cmd: "{{.UV}} run cantica serve --reload"
 
   serve:prod:
     desc: Start the Cantica API server (production mode)
-    cmd: uv run cantica serve
+    cmd: "{{.UV}} run cantica serve"
 
   serve:port:
     desc: "Start the server on a custom port    [usage: task serve:port -- 9000]"
-    cmd: uv run cantica serve --port {{.CLI_ARGS}}
+    cmd: "{{.UV}} run cantica serve --port {{.CLI_ARGS}}"
 
   # ── Build & publish ───────────────────────────────────────────────────────
   build:
@@ -212,15 +214,15 @@ tasks:
   repl:
     desc: Open an interactive Python shell with cantica available
     interactive: true
-    cmd: uv run python
+    cmd: "{{.UV}} run python"
 
   run:
     desc: "Run any command in the project environment [usage: task run -- python script.py]"
-    cmd: uv run {{.CLI_ARGS}}
+    cmd: "{{.UV}} run {{.CLI_ARGS}}"
 
   version:
     desc: Print the current package version
-    cmd: uv run python -c "from importlib.metadata import version; print(version('cantica'))"
+    cmd: "{{.UV}} run python -c \"from importlib.metadata import version; print(version('cantica'))\""
 
   # ── Clean ─────────────────────────────────────────────────────────────────
   clean:
@@ -240,17 +242,17 @@ tasks:
   # ── Frontend ─────────────────────────────────────────────────────────────
   ui:dev:
     desc: Start the Vite dev server (proxies /v1 to FastAPI at :8042)
-    dir: frontend
+    dir: ../cantica-frontend
     cmd: npm run dev
 
   ui:build:
-    desc: Build the frontend for production (outputs to frontend/dist/)
-    dir: frontend
+    desc: Build the frontend for production (outputs to cantica-frontend/dist/)
+    dir: ../cantica-frontend
     cmd: npm run build
 
   ui:install:
     desc: Install frontend npm dependencies
-    dir: frontend
+    dir: ../cantica-frontend
     cmd: npm install
 
   clean:all:
