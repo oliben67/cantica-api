@@ -807,3 +807,387 @@ async def test_export_push_with_cert_token(shim: CanticaShim) -> None:
         await shim.export.push("http://remote/api/v1", "mykey", cert_token="mytoken")
 
     assert captured_headers.get("X-Cantica-Certificate") == "mytoken"
+
+
+# ---------------------------------------------------------------------------
+# federation
+# ---------------------------------------------------------------------------
+
+
+async def test_federation_add_and_list_peers(shim: CanticaShim) -> None:
+    peer = await shim.federation.add_peer("acme", "http://acme.example", "key1")
+    assert peer.name == "acme"
+    assert peer.url == "http://acme.example"
+    assert peer.api_key == "key1"
+    peers = await shim.federation.list_peers()
+    assert any(p.name == "acme" for p in peers)
+
+
+async def test_federation_get_peer(shim: CanticaShim) -> None:
+    peer = await shim.federation.add_peer("beta", "http://beta.example")
+    found = await shim.federation.get_peer(peer.id)
+    assert found is not None
+    assert found.name == "beta"
+    assert await shim.federation.get_peer("no-such-id") is None
+
+
+async def test_federation_remove_peer(shim: CanticaShim) -> None:
+    peer = await shim.federation.add_peer("gamma", "http://gamma.example")
+    assert await shim.federation.remove_peer(peer.id) is True
+    assert await shim.federation.remove_peer(peer.id) is False
+    assert await shim.federation.list_peers() == []
+
+
+async def test_federation_search_no_peers(shim: CanticaShim) -> None:
+    results = await shim.federation.search("anything")
+    assert results == []
+
+
+async def test_federation_list_prompts_no_peers(shim: CanticaShim) -> None:
+    results = await shim.federation.list_prompts()
+    assert results == []
+
+
+async def test_federation_search_returns_peer_results(shim: CanticaShim) -> None:
+    # Standard library imports:
+    from unittest.mock import AsyncMock, MagicMock, patch
+
+    await shim.federation.add_peer("acme", "http://acme.example", "key1")
+    fake_prompt = {
+        "id": "abc", "namespace": "acme", "name": "greet", "description": "",
+        "tags": [], "model_hints": [], "license": "MIT", "visibility": "public",
+        "variables": [], "star_count": 0, "fork_count": 0, "default_branch": "main",
+        "source": None, "created_at": "2026-01-01T00:00:00", "updated_at": "2026-01-01T00:00:00",
+        "slug": "acme/greet",
+    }
+    mock_resp = MagicMock()
+    mock_resp.raise_for_status = MagicMock()
+    mock_resp.json = MagicMock(return_value=[fake_prompt])
+    mock_client = AsyncMock()
+    mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+    mock_client.__aexit__ = AsyncMock(return_value=False)
+    mock_client.get = AsyncMock(return_value=mock_resp)
+    with patch("httpx.AsyncClient", return_value=mock_client):
+        results = await shim.federation.search("greet")
+    assert len(results) == 1
+    assert results[0]["peer_name"] == "acme"
+    assert results[0]["error"] is None
+    assert results[0]["prompts"][0]["name"] == "greet"
+
+
+async def test_federation_list_prompts_returns_peer_results(shim: CanticaShim) -> None:
+    # Standard library imports:
+    from unittest.mock import AsyncMock, MagicMock, patch
+
+    await shim.federation.add_peer("acme", "http://acme.example")
+    fake_prompt = {
+        "id": "xyz", "namespace": "acme", "name": "helper", "description": "",
+        "tags": [], "model_hints": [], "license": "MIT", "visibility": "public",
+        "variables": [], "star_count": 0, "fork_count": 0, "default_branch": "main",
+        "source": None, "created_at": "2026-01-01T00:00:00", "updated_at": "2026-01-01T00:00:00",
+        "slug": "acme/helper",
+    }
+    mock_resp = MagicMock()
+    mock_resp.raise_for_status = MagicMock()
+    mock_resp.json = MagicMock(return_value=[fake_prompt])
+    mock_client = AsyncMock()
+    mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+    mock_client.__aexit__ = AsyncMock(return_value=False)
+    mock_client.get = AsyncMock(return_value=mock_resp)
+    with patch("httpx.AsyncClient", return_value=mock_client):
+        results = await shim.federation.list_prompts(namespace="acme")
+    assert results[0]["prompts"][0]["name"] == "helper"
+
+
+async def test_federation_search_captures_peer_error(shim: CanticaShim) -> None:
+    # Standard library imports:
+    from unittest.mock import AsyncMock, patch
+
+    # Third party imports:
+    import httpx
+
+    await shim.federation.add_peer("broken", "http://broken.example")
+    mock_client = AsyncMock()
+    mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+    mock_client.__aexit__ = AsyncMock(return_value=False)
+    mock_client.get = AsyncMock(side_effect=httpx.ConnectError("refused"))
+    with patch("httpx.AsyncClient", return_value=mock_client):
+        results = await shim.federation.search("anything")
+    assert results[0]["error"] is not None
+    assert results[0]["prompts"] == []
+
+
+async def test_federation_list_prompts_captures_peer_error(shim: CanticaShim) -> None:
+    # Standard library imports:
+    from unittest.mock import AsyncMock, patch
+
+    # Third party imports:
+    import httpx
+
+    await shim.federation.add_peer("broken", "http://broken.example")
+    mock_client = AsyncMock()
+    mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+    mock_client.__aexit__ = AsyncMock(return_value=False)
+    mock_client.get = AsyncMock(side_effect=httpx.ConnectError("refused"))
+    with patch("httpx.AsyncClient", return_value=mock_client):
+        results = await shim.federation.list_prompts()
+    assert results[0]["error"] is not None
+    assert results[0]["prompts"] == []
+
+
+async def test_federation_list_prompts_with_api_key_peer(shim: CanticaShim) -> None:
+    # Standard library imports:
+    from unittest.mock import AsyncMock, MagicMock, patch
+
+    await shim.federation.add_peer("secure", "http://secure.example", api_key="mysecret")
+    mock_resp = MagicMock()
+    mock_resp.raise_for_status = MagicMock()
+    mock_resp.json = MagicMock(return_value=[])
+    mock_client = AsyncMock()
+    mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+    mock_client.__aexit__ = AsyncMock(return_value=False)
+    mock_client.get = AsyncMock(return_value=mock_resp)
+    with patch("httpx.AsyncClient", return_value=mock_client):
+        results = await shim.federation.list_prompts()
+    # Verify the api_key was passed as a header
+    call_kwargs = mock_client.get.call_args[1]
+    assert call_kwargs.get("headers", {}).get("X-API-Key") == "mysecret"
+    assert results[0]["error"] is None
+
+
+async def test_prompts_create_with_source(shim: CanticaShim) -> None:
+    # Local imports:
+    from cantica.models import PromptSource
+
+    src = PromptSource(url="https://github.com/example/repo", repo="example/repo", author="Alice")
+    p = await shim.prompts.create("acme", "sourced", source=src)
+    assert p.source is not None
+    assert p.source.repo == "example/repo"
+    fetched = await shim.prompts.get("acme", "sourced")
+    assert fetched is not None
+    assert fetched.source is not None
+    assert fetched.source.author == "Alice"
+
+
+# ---------------------------------------------------------------------------
+# _FederateProtocol shim
+# ---------------------------------------------------------------------------
+
+
+async def test_federate_get_identity(shim: CanticaShim) -> None:
+    identity = await shim.federate.get_identity()
+    assert "public_key_pem" in identity
+    assert identity["public_key_pem"].startswith("-----BEGIN PUBLIC KEY-----")
+
+
+async def test_federate_create_federation(shim: CanticaShim) -> None:
+    fed, member = await shim.federate.create_federation("my-fed")
+    assert fed.name == "my-fed"
+    assert fed.is_founder is True
+    assert member.federation_id == fed.id
+
+
+async def test_federate_list_federations_empty(shim: CanticaShim) -> None:
+    await shim.federate.get_identity()
+    feds = await shim.federate.list_federations()
+    assert feds == []
+
+
+async def test_federate_list_federations_after_create(shim: CanticaShim) -> None:
+    await shim.federate.create_federation("alpha")
+    await shim.federate.create_federation("beta")
+    feds = await shim.federate.list_federations()
+    names = {f.name for f in feds}
+    assert names == {"alpha", "beta"}
+
+
+async def test_federate_list_members(shim: CanticaShim) -> None:
+    fed, _ = await shim.federate.create_federation("my-fed")
+    members = await shim.federate.list_members(fed.id)
+    assert len(members) == 1
+    assert members[0].federation_id == fed.id
+
+
+async def test_federate_list_members_all(shim: CanticaShim) -> None:
+    from cantica.core.federation_crypto import generate_key_pair  # noqa: PLC0415
+
+    fed, _ = await shim.federate.create_federation("my-fed")
+    pub2, _priv2 = generate_key_pair()
+    shim.store.add_federation_member(
+        fed.id, pub2, "http://peer.example/v1/federate", is_accepted=False
+    )
+    all_members = await shim.federate.list_members(fed.id, accepted_only=False)
+    assert len(all_members) == 2
+
+
+async def test_federate_sync_all_no_federations(shim: CanticaShim) -> None:
+    """sync_all with no federations completes without error."""
+    await shim.federate.get_identity()
+    await shim.federate.sync_all()  # no-op, no exception
+
+
+async def test_federate_sync_all_skips_founder(shim: CanticaShim) -> None:
+    """sync_all skips federations where is_founder=True."""
+    await shim.federate.create_federation("founder-fed")
+    # Should complete without making any HTTP calls
+    from unittest.mock import patch  # noqa: PLC0415
+
+    with patch("httpx.AsyncClient") as mock_cls:
+        await shim.federate.sync_all()
+        mock_cls.assert_not_called()
+
+
+async def test_federate_sync_all_non_founder_no_founder_url(shim: CanticaShim) -> None:
+    """sync_all skips non-founder federations with no known founder URL."""
+    from cantica.core.federation_crypto import encrypt_field, generate_key_pair  # noqa: PLC0415
+    from cantica.orm.tables import FederationOrm  # noqa: PLC0415
+    from sqlalchemy import update  # noqa: PLC0415
+
+    fed, _ = await shim.federate.create_federation("non-founder-fed")
+    pub2, _priv2 = generate_key_pair()
+    enc_key = shim.store._fed_enc_key
+    shim.store.session.execute(
+        update(FederationOrm)
+        .where(FederationOrm.id == fed.id)
+        .values(founding_key_enc=encrypt_field(pub2, enc_key))
+    )
+    shim.store.session.commit()
+    # No founder member with a URL → should skip silently
+    from unittest.mock import patch  # noqa: PLC0415
+
+    with patch("httpx.AsyncClient") as mock_cls:
+        await shim.federate.sync_all()
+        mock_cls.assert_not_called()
+
+
+async def test_federate_sync_all_non_founder_posts_to_founder(shim: CanticaShim) -> None:
+    """sync_all sends a POST to the founder sync URL for non-founder federations."""
+    from unittest.mock import AsyncMock, patch  # noqa: PLC0415
+
+    from cantica.core.federation_crypto import encrypt_field, generate_key_pair  # noqa: PLC0415
+    from cantica.orm.tables import FederationOrm  # noqa: PLC0415
+    from sqlalchemy import update  # noqa: PLC0415
+
+    fed, _ = await shim.federate.create_federation("non-founder-fed")
+    pub2, priv2 = generate_key_pair()
+    enc_key = shim.store._fed_enc_key
+    shim.store.session.execute(
+        update(FederationOrm)
+        .where(FederationOrm.id == fed.id)
+        .values(founding_key_enc=encrypt_field(pub2, enc_key))
+    )
+    shim.store.session.commit()
+    # Add founder as member with a URL
+    shim.store.add_federation_member(fed.id, pub2, "http://founder.example/v1/federate")
+
+    mock_resp = AsyncMock()
+    mock_client = AsyncMock()
+    mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+    mock_client.__aexit__ = AsyncMock(return_value=False)
+    mock_client.post = AsyncMock(return_value=mock_resp)
+    with patch("httpx.AsyncClient", return_value=mock_client):
+        await shim.federate.sync_all()
+    mock_client.post.assert_called_once()
+    call_url = mock_client.post.call_args[0][0]
+    assert call_url.endswith("/sync")
+
+
+async def test_federate_sync_all_suppresses_exceptions(shim: CanticaShim) -> None:
+    """sync_all never raises even when a sync attempt fails."""
+    from unittest.mock import AsyncMock, patch  # noqa: PLC0415
+
+    from cantica.core.federation_crypto import encrypt_field, generate_key_pair  # noqa: PLC0415
+    from cantica.orm.tables import FederationOrm  # noqa: PLC0415
+    from sqlalchemy import update  # noqa: PLC0415
+
+    fed, _ = await shim.federate.create_federation("bad-fed")
+    pub2, priv2 = generate_key_pair()
+    enc_key = shim.store._fed_enc_key
+    shim.store.session.execute(
+        update(FederationOrm)
+        .where(FederationOrm.id == fed.id)
+        .values(founding_key_enc=encrypt_field(pub2, enc_key))
+    )
+    shim.store.session.commit()
+    shim.store.add_federation_member(fed.id, pub2, "http://founder.example/v1/federate")
+
+    import httpx  # noqa: PLC0415
+
+    mock_client = AsyncMock()
+    mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+    mock_client.__aexit__ = AsyncMock(return_value=False)
+    mock_client.post = AsyncMock(side_effect=httpx.ConnectError("refused"))
+    with patch("httpx.AsyncClient", return_value=mock_client):
+        await shim.federate.sync_all()  # must not raise
+
+
+# ---------------------------------------------------------------------------
+# _sync_loop background task
+# ---------------------------------------------------------------------------
+
+
+async def test_sync_loop_calls_sync_all(shim: CanticaShim) -> None:
+    """_sync_loop calls shim.federate.sync_all() and then sleeps."""
+    # Standard library imports:
+    import asyncio
+    from unittest.mock import patch  # noqa: PLC0415
+
+    from cantica.shim import _FederateProtocol, _sync_loop  # noqa: PLC0415
+
+    call_count = 0
+    sync_calls = 0
+
+    async def fake_sleep(_n: float) -> None:
+        nonlocal call_count
+        call_count += 1
+        if call_count >= 2:
+            raise asyncio.CancelledError
+
+    async def fake_sync_all(self) -> None:  # noqa: ANN001
+        nonlocal sync_calls
+        sync_calls += 1
+
+    with patch("cantica.shim.asyncio.sleep", side_effect=fake_sleep):
+        with patch.object(_FederateProtocol, "sync_all", fake_sync_all):
+            try:
+                await _sync_loop(shim, interval=1)
+            except asyncio.CancelledError:
+                pass
+    assert sync_calls >= 1
+
+
+async def test_sync_loop_suppresses_sync_all_exception(shim: CanticaShim) -> None:
+    """_sync_loop's except clause swallows exceptions from sync_all."""
+    # Standard library imports:
+    import asyncio
+    from unittest.mock import patch  # noqa: PLC0415
+
+    from cantica.shim import _FederateProtocol, _sync_loop  # noqa: PLC0415
+
+    call_count = 0
+
+    async def fake_sleep(_n: float) -> None:
+        nonlocal call_count
+        call_count += 1
+        if call_count >= 2:
+            raise asyncio.CancelledError
+
+    async def raising_sync_all(self) -> None:  # noqa: ANN001
+        raise RuntimeError("sync failed")
+
+    with patch("cantica.shim.asyncio.sleep", side_effect=fake_sleep):
+        with patch.object(_FederateProtocol, "sync_all", raising_sync_all):
+            try:
+                await _sync_loop(shim, interval=1)
+            except asyncio.CancelledError:
+                pass  # expected termination — RuntimeError must NOT propagate
+
+
+async def test_lifespan_with_zero_sync_interval(tmp_path: Path) -> None:
+    """lifespan() with federation_sync_interval=0 skips creating the sync task."""
+    from cantica.config import Settings  # noqa: PLC0415
+
+    settings = Settings(vault_path=tmp_path, federation_sync_interval=0)
+    shim = CanticaShim(settings=settings)
+    async with shim.lifespan():
+        pass  # no sync task created; cleanup path exercised

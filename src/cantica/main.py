@@ -21,6 +21,10 @@ Use ``cantica serve`` (CLI) or point a WSGI runner directly at this object.
 # Future imports (must occur at the beginning of the file):
 from __future__ import annotations
 
+# Standard library imports:
+from contextlib import asynccontextmanager
+from typing import AsyncGenerator
+
 # Third party imports:
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -28,6 +32,19 @@ from fastapi.middleware.cors import CORSMiddleware
 # Local imports:
 from cantica.api.v1.router import router as v1_router
 from cantica.core.logger import setup_logging
+
+
+@asynccontextmanager
+async def _lifespan(_app: FastAPI) -> AsyncGenerator[None, None]:
+    """Run bootstrap tasks (user seeding, first-install key) then serve."""
+    from cantica.api.deps import get_auth_config, get_store  # noqa: PLC0415
+    from cantica.config import get_settings  # noqa: PLC0415
+    from cantica.core.auth_provider import LocalAuthProvider  # noqa: PLC0415
+
+    settings = get_settings()
+    if settings.auth_enabled:
+        await LocalAuthProvider(get_store(), get_auth_config()).bootstrap()
+    yield
 
 
 def create_app() -> FastAPI:
@@ -39,6 +56,7 @@ def create_app() -> FastAPI:
         version="0.1.0",
         docs_url="/docs",
         redoc_url="/redoc",
+        lifespan=_lifespan,
     )
     app.add_middleware(
         CORSMiddleware,

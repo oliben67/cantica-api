@@ -153,3 +153,15 @@ def test_revoke_certificate_not_found(client: TestClient) -> None:
     client.post("/v1/namespaces", json={"name": "priv", "is_proprietary": True})
     resp = client.delete("/v1/namespaces/priv/certificates/nonexistent-id")
     assert resp.status_code == 404
+
+
+def test_update_namespace_store_error_returns_404(client: TestClient) -> None:
+    """update_namespace raising KeyError maps to 404 (lines 136-137 in namespaces.py)."""
+    from unittest.mock import patch  # noqa: PLC0415
+
+    from cantica.services.version_store import VersionStore  # noqa: PLC0415
+
+    client.post("/v1/namespaces", json={"name": "acme"})
+    with patch.object(VersionStore, "update_namespace", side_effect=KeyError("not found")):
+        resp = client.patch("/v1/namespaces/acme", json={"description": "X"})
+    assert resp.status_code == 404

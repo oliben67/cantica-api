@@ -21,6 +21,8 @@ Included routers (in registration order):
 - ``auth``        — API token management (``/v1/tokens``)
 - ``push``        — NDJSON streaming push ingestion (``/v1/push``)
 - ``namespaces``  — namespace CRUD + certificate management (``/v1/namespaces``)
+- ``federation``  — federation peer management and cross-instance fan-out (``/v1/federation``)
+- ``federate``    — federation membership protocol (``/v1/federate``, ``/v1/federations``)
 """
 
 # Future imports (must occur at the beginning of the file):
@@ -31,11 +33,16 @@ from fastapi import APIRouter
 
 # Local imports:
 from cantica.api.v1.endpoints import (
+    admin,
     auth,
+    upload,
     branches,
+    invites,
     collections,
     comments,
     diff,
+    federate,
+    federation,
     forks,
     hooks,
     namespaces,
@@ -43,6 +50,7 @@ from cantica.api.v1.endpoints import (
     push,
     render,
     resolve,
+    sessions,
     stars,
     tags,
     versions,
@@ -65,3 +73,9 @@ router.include_router(hooks.router)
 router.include_router(auth.router)
 router.include_router(push.router)
 router.include_router(namespaces.router)
+router.include_router(federation.router)
+router.include_router(federate.router)
+router.include_router(sessions.router)
+router.include_router(admin.router)
+router.include_router(invites.router)
+router.include_router(upload.router)

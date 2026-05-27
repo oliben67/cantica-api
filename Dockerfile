@@ -1,5 +1,3 @@
-# syntax=docker/dockerfile:1
-
 # ── Stage 1: build deps ────────────────────────────────────────────────────────
 FROM ghcr.io/astral-sh/uv:python3.14-bookworm-slim AS builder
 
@@ -11,10 +9,14 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy lockfile + project manifest first for layer caching
-COPY pyproject.toml uv.lock ./
+COPY pyproject.toml uv.lock README.md ./
 
-# Install all deps including postgres extra into the project venv
-RUN uv sync --frozen --no-dev --extra postgres
+# Install dependencies only (not the project itself) for better layer caching
+RUN uv sync --frozen --no-dev --extra postgres --no-install-project
+
+# Copy application source, then install the project package as a proper wheel
+COPY src/ src/
+RUN uv sync --frozen --no-dev --extra postgres --no-editable
 
 # ── Stage 2: runtime ───────────────────────────────────────────────────────────
 FROM ghcr.io/astral-sh/uv:python3.14-bookworm-slim AS runtime
@@ -32,10 +34,6 @@ RUN groupadd --gid 1001 cantica && \
 
 # Copy the installed venv from the builder stage
 COPY --from=builder /app/.venv /app/.venv
-
-# Copy application source
-COPY src/ src/
-COPY pyproject.toml ./
 
 # Data volume — prompts and SQLite DB live here unless DATABASE_URL is set
 RUN mkdir -p /data && chown cantica:cantica /data

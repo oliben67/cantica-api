@@ -92,6 +92,77 @@ def test_get_store_creates_version_store(tmp_path: Path, monkeypatch) -> None:
     get_settings.cache_clear()
 
 
+def test_get_auth_provider_direct_call(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setenv("CANTICA_VAULT_PATH", str(tmp_path / "vault"))
+    # Local imports:
+    from cantica.api.deps import get_auth_config, get_auth_provider, get_store
+    from cantica.config import get_settings
+    from cantica.core.auth_provider import LocalAuthProvider
+
+    get_settings.cache_clear()
+    get_store.cache_clear()
+    get_auth_config.cache_clear()
+    get_auth_provider.cache_clear()
+    provider = get_auth_provider()
+    assert isinstance(provider, LocalAuthProvider)
+    get_auth_provider.cache_clear()
+    get_auth_config.cache_clear()
+    get_store.cache_clear()
+    get_settings.cache_clear()
+
+
+def test_get_jwt_secret_returns_configured_secret(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setenv("CANTICA_VAULT_PATH", str(tmp_path / "vault"))
+    monkeypatch.setenv("CANTICA_JWT_SECRET", "my-explicit-secret")
+    # Local imports:
+    from cantica.api.deps import get_jwt_secret
+    from cantica.config import get_settings
+
+    get_settings.cache_clear()
+    secret = get_jwt_secret()
+    assert secret == "my-explicit-secret"
+    get_settings.cache_clear()
+
+
+def test_get_jwt_secret_derives_from_key_file(tmp_path: Path, monkeypatch) -> None:
+    vault = tmp_path / "vault"
+    monkeypatch.setenv("CANTICA_VAULT_PATH", str(vault))
+    monkeypatch.setenv("CANTICA_JWT_SECRET", "")
+    # Local imports:
+    from cantica.api.deps import get_store
+    from cantica.config import get_settings
+
+    get_settings.cache_clear()
+    get_store.cache_clear()
+    # Prime the federation key by calling get_or_create_identity
+    s = VersionStore(vault)
+    s.get_or_create_identity()
+    s.close()
+    get_store.cache_clear()
+
+    from cantica.api.deps import get_jwt_secret
+
+    secret = get_jwt_secret()
+    assert len(secret) == 64  # sha256 hexdigest
+    get_store.cache_clear()
+    get_settings.cache_clear()
+
+
+def test_get_federation_policy_direct_call(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setenv("CANTICA_VAULT_PATH", str(tmp_path / "vault"))
+    # Local imports:
+    from cantica.api.deps import get_federation_policy
+    from cantica.config import get_settings
+    from cantica.core.federation_policy import FederationPolicy
+
+    get_settings.cache_clear()
+    get_federation_policy.cache_clear()
+    policy = get_federation_policy()
+    assert isinstance(policy, FederationPolicy)
+    get_federation_policy.cache_clear()
+    get_settings.cache_clear()
+
+
 # ------------------------------------------------------------------ #
 # services/blob_store                                                  #
 # ------------------------------------------------------------------ #

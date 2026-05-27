@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Any
 
 # Third party imports:
+import httpx
 from fastapi import FastAPI
 
 # Local imports:
@@ -23,10 +24,12 @@ from cantica.models import (
     Branch,
     Collection,
     Comment,
+    FederationPeer,
     Fork,
     Namespace,
     NamespaceCert,
     Prompt,
+    PromptSource,
     Star,
     Tag,
     VariableSchema,
@@ -177,6 +180,7 @@ class _Prompts:
         license: str = "MIT",
         visibility: str | Visibility = Visibility.public,
         variables: builtins.list[VariableSchema] | None = None,
+        source: PromptSource | None = None,
     ) -> Prompt:
         """Create a new prompt *namespace/name* and return it."""
         _vis = Visibility(visibility) if isinstance(visibility, str) else visibility
@@ -191,6 +195,7 @@ class _Prompts:
                 license=license,
                 visibility=_vis,
                 variables=variables,
+                source=source,
             )
 
         return await asyncio.to_thread(_sync)
@@ -601,6 +606,198 @@ class _Webhooks:
         await asyncio.to_thread(self._s.fire_webhooks, event, payload)
 
 
+class _Federation:
+    """Async façade for federation peer management and read-only cross-instance queries."""
+
+    __slots__ = ("_s",)
+
+    def __init__(self, store: VersionStore) -> None:
+        """Bind to *store*."""
+        self._s = store
+
+    async def add_peer(
+        self, name: str, url: str, api_key: str | None = None
+    ) -> FederationPeer:
+        """Register a new read-only federation peer and return it."""
+        return await asyncio.to_thread(self._s.add_federation_peer, name, url, api_key)
+
+    async def list_peers(self) -> builtins.list[FederationPeer]:
+        """Return all registered federation peers."""
+        return await asyncio.to_thread(self._s.list_federation_peers)
+
+    async def get_peer(self, peer_id: str) -> FederationPeer | None:
+        """Return the peer with *peer_id*, or ``None`` if not found."""
+        return await asyncio.to_thread(self._s.get_federation_peer, peer_id)
+
+    async def remove_peer(self, peer_id: str) -> bool:
+        """Remove the peer with *peer_id*; return ``True`` if it existed."""
+        return await asyncio.to_thread(self._s.remove_federation_peer, peer_id)
+
+    async def search(
+        self,
+        q: str,
+        *,
+        namespace: str | None = None,
+        tag: str | None = None,
+        model: str | None = None,
+        visibility: str | None = None,
+    ) -> builtins.list[dict[str, Any]]:
+        """Fan-out *q* to all registered peers; return results grouped by peer.
+
+        Each entry has keys ``peer_id``, ``peer_name``, ``peer_url``,
+        ``prompts`` (list of raw dicts), and optionally ``error``.
+        Read-only — no data is written to any peer.
+        """
+        peers = await self.list_peers()
+        if not peers:
+            return []
+
+        params: dict[str, Any] = {
+            "q": q, "namespace": namespace, "tag": tag,
+            "model": model, "visibility": visibility,
+        }
+        clean = {k: v for k, v in params.items() if v is not None}
+
+        async def _query(peer: FederationPeer) -> dict[str, Any]:
+            headers: dict[str, str] = {}
+            if peer.api_key:
+                headers["X-API-Key"] = peer.api_key
+            try:
+                async with httpx.AsyncClient(timeout=15) as client:
+                    resp = await client.get(
+                        f"{peer.url}/v1/prompts", params=clean, headers=headers
+                    )
+                resp.raise_for_status()
+                return {
+                    "peer_id": peer.id, "peer_name": peer.name, "peer_url": peer.url,
+                    "prompts": resp.json(), "error": None,
+                }
+            except Exception as exc:  # noqa: BLE001
+                return {
+                    "peer_id": peer.id, "peer_name": peer.name, "peer_url": peer.url,
+                    "prompts": [], "error": str(exc),
+                }
+
+        return list(await asyncio.gather(*[_query(p) for p in peers]))
+
+    async def list_prompts(
+        self,
+        *,
+        namespace: str | None = None,
+        tag: str | None = None,
+        model: str | None = None,
+        visibility: str | None = None,
+    ) -> builtins.list[dict[str, Any]]:
+        """Fan-out a list-prompts request to all peers; return results grouped by peer.
+
+        Read-only — no data is written to any peer.
+        """
+        peers = await self.list_peers()
+        if not peers:
+            return []
+
+        params: dict[str, Any] = {
+            "namespace": namespace, "tag": tag, "model": model, "visibility": visibility,
+        }
+        clean = {k: v for k, v in params.items() if v is not None}
+
+        async def _query(peer: FederationPeer) -> dict[str, Any]:
+            headers: dict[str, str] = {}
+            if peer.api_key:
+                headers["X-API-Key"] = peer.api_key
+            try:
+                async with httpx.AsyncClient(timeout=15) as client:
+                    resp = await client.get(
+                        f"{peer.url}/v1/prompts", params=clean, headers=headers
+                    )
+                resp.raise_for_status()
+                return {
+                    "peer_id": peer.id, "peer_name": peer.name, "peer_url": peer.url,
+                    "prompts": resp.json(), "error": None,
+                }
+            except Exception as exc:  # noqa: BLE001
+                return {
+                    "peer_id": peer.id, "peer_name": peer.name, "peer_url": peer.url,
+                    "prompts": [], "error": str(exc),
+                }
+
+        return list(await asyncio.gather(*[_query(p) for p in peers]))
+
+
+class _FederateProtocol:
+    """Async façade for the federation membership protocol."""
+
+    __slots__ = ("_s",)
+
+    def __init__(self, store: VersionStore) -> None:
+        """Bind to *store*."""
+        self._s = store
+
+    async def get_identity(self) -> dict:
+        """Return this server's federation identity (public key PEM + created_at)."""
+        identity = await asyncio.to_thread(self._s.get_or_create_identity)
+        return {"public_key_pem": identity.public_key_pem, "created_at": identity.created_at}
+
+    async def create_federation(self, name: str) -> tuple:
+        """Create a new federation; this server becomes the founding member."""
+        return await asyncio.to_thread(self._s.create_federation, name)
+
+    async def list_federations(self) -> builtins.list:
+        """Return all federations this server belongs to."""
+        return await asyncio.to_thread(self._s.list_federations)
+
+    async def list_members(
+        self, federation_id: str, *, accepted_only: bool = True
+    ) -> builtins.list:
+        """Return members of *federation_id*."""
+        return await asyncio.to_thread(
+            self._s.list_federation_members, federation_id, accepted_only=accepted_only
+        )
+
+    async def sync_all(self) -> None:
+        """Best-effort: sync all non-founder federations with their founding servers."""
+        # Standard library imports:
+        import json as _json  # noqa: PLC0415
+
+        # Third party imports:
+        import httpx  # noqa: PLC0415
+
+        # Local imports:
+        from cantica.core.federation_crypto import encrypt_for, verify_signature  # noqa: PLC0415
+
+        feds = await self.list_federations()
+        for fed in feds:
+            if fed.is_founder:
+                continue
+            try:
+                identity = await asyncio.to_thread(self._s.get_or_create_identity)
+                members = await self.list_members(fed.id, accepted_only=False)
+                # Find the founder's federate URL
+                founder_url = None
+                for m in members:
+                    if m.public_key == fed.founding_key and m.federate_url:
+                        founder_url = m.federate_url
+                        break
+                if not founder_url:
+                    continue
+                table_json = _json.dumps([m.model_dump(mode="json") for m in members])
+                encrypted = encrypt_for(table_json.encode(), fed.founding_key)
+                sig = await asyncio.to_thread(
+                    self._s.sign_federation_message, encrypted.encode()
+                )
+                sync_req = {
+                    "federation_id": fed.id,
+                    "public_key": identity.public_key_pem,
+                    "encrypted_table": encrypted,
+                    "signature": sig,
+                }
+                founder_sync_url = founder_url.rstrip("/") + "/sync"
+                async with httpx.AsyncClient(timeout=30) as client:
+                    await client.post(founder_sync_url, json=sync_req)
+            except Exception:  # noqa: BLE001
+                pass  # best-effort — never raise from background sync
+
+
 class _Auth:
     """Async façade for API-key (token) management."""
 
@@ -705,6 +902,7 @@ class _Export:
                 "license": p.license,
                 "visibility": p.visibility.value,
                 "variables": [v.model_dump() for v in (p.variables or [])],
+                "source": p.source.model_dump() if p.source else None,
             }
             yield (json.dumps(rec) + "\n").encode()
 
@@ -750,14 +948,10 @@ class _Export:
         """Stream this instance's data to a remote Cantica *target_url*.
 
         Acquires the local write lock for the duration so that no writes
-        interleave while the export snapshot is being streamed.  Requires
-        ``httpx`` (``pip install httpx``).
+        interleave while the export snapshot is being streamed.
 
         Pass *cert_token* when the target namespace on the remote is proprietary.
         """
-        # Third party imports:
-        import httpx
-
         async with self._lock:
 
             async def _body() -> AsyncGenerator[bytes]:
@@ -836,6 +1030,8 @@ class _Export:
             if existing is not None:
                 return "skipped"
             variables = [VariableSchema(**v) for v in record.get("variables", [])]
+            src_data = record.get("source")
+            source = PromptSource(**src_data) if src_data else None
             await asyncio.to_thread(
                 self._s.create_prompt,
                 record["namespace"],
@@ -846,6 +1042,7 @@ class _Export:
                 license=record.get("license", "MIT"),
                 visibility=Visibility(record.get("visibility", "public")),
                 variables=variables,
+                source=source,
             )
             return "imported"
 
@@ -889,6 +1086,21 @@ class _Export:
             return await asyncio.to_thread(_do_tag)
 
         return "ignored"  # checkpoint + unknown types
+
+
+# ---------------------------------------------------------------------------
+# Background federation sync loop
+# ---------------------------------------------------------------------------
+
+
+async def _sync_loop(shim: CanticaShim, interval: int) -> None:
+    """Background coroutine: periodically sync federation members with founding servers."""
+    while True:
+        await asyncio.sleep(interval)
+        try:
+            await shim.federate.sync_all()
+        except Exception:  # noqa: BLE001
+            pass  # best-effort
 
 
 # ---------------------------------------------------------------------------
@@ -969,6 +1181,8 @@ class CanticaShim:
         self.collections = _Collections(self._store)
         self.webhooks = _Webhooks(self._store)
         self.auth = _Auth(self._store)
+        self.federation = _Federation(self._store)
+        self.federate = _FederateProtocol(self._store)
         self.export = _Export(self._store, self._write_lock)
 
     @property
@@ -993,7 +1207,7 @@ class CanticaShim:
 
     @asynccontextmanager
     async def lifespan(self) -> AsyncIterator[None]:
-        """Async context manager — closes the store on exit.
+        """Async context manager — starts background sync, closes the store on exit.
 
         Use inside a FastAPI ``lifespan`` function::
 
@@ -1002,9 +1216,19 @@ class CanticaShim:
                 async with shim.lifespan():
                     yield
         """
+        interval = self._settings.federation_sync_interval
+        sync_task: asyncio.Task | None = None
+        if interval > 0:
+            sync_task = asyncio.create_task(_sync_loop(self, interval))
         try:
             yield
         finally:
+            if sync_task is not None:
+                sync_task.cancel()
+                try:
+                    await sync_task
+                except asyncio.CancelledError:
+                    pass
             self._store.close()
 
     def wrap_lifespan(

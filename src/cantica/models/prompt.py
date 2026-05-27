@@ -76,6 +76,17 @@ class VariableSchema(BaseModel):
     required: bool = False
 
 
+class PromptSource(BaseModel):
+    """Attribution and scraping provenance for a prompt imported from an external source."""
+
+    url: str
+    repo: str | None = None
+    author: str | None = None
+    # SPDX license id of the *original* work — separate from Prompt.license
+    license: str | None = None
+    scraped_at: datetime | None = None
+
+
 class Prompt(BaseModel):
     """Top-level registry entry identified by ``namespace/name`` (see ``slug`` property)."""
 
@@ -93,6 +104,7 @@ class Prompt(BaseModel):
     default_branch: str = "main"
     created_at: datetime = Field(default_factory=_utcnow)
     updated_at: datetime = Field(default_factory=_utcnow)
+    source: PromptSource | None = None
 
     @property
     def slug(self) -> str:
@@ -206,3 +218,43 @@ class Webhook(BaseModel):
     secret: str
     namespace: str | None = None
     created_at: datetime = Field(default_factory=_utcnow)
+
+
+class ServerIdentity(BaseModel):
+    """This server's RSA identity (public key only; private key stored on disk)."""
+
+    public_key_pem: str
+    created_at: datetime
+
+
+class Federation(BaseModel):
+    """A named federation this server belongs to."""
+
+    id: str
+    name: str
+    founding_key: str   # decrypted founding member's public key at read time
+    is_founder: bool    # True if founding_key matches this server's public key
+    created_at: datetime
+
+
+class FederationMember(BaseModel):
+    """A member record within a federation (decrypted at read time)."""
+
+    id: str
+    federation_id: str
+    public_key: str     # decrypted public key PEM
+    federate_url: str   # decrypted /v1/federate URL
+    is_accepted: bool
+    joined_at: datetime
+    updated_at: datetime
+
+
+class FederationPeer(BaseModel):
+    """A remote Cantica instance registered as a read-only federation peer."""
+
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    name: str
+    url: str
+    # Outbound API key used when querying this peer; None for public instances.
+    api_key: str | None = None
+    added_at: datetime = Field(default_factory=_utcnow)

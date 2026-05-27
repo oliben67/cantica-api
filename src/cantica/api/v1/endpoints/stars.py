@@ -57,7 +57,7 @@ def star_prompt(
     except PermissionError as exc:
         raise HTTPException(status_code=403, detail=str(exc)) from exc
     try:
-        star = store.star_prompt(namespace, name, user["id"])
+        star = store.star_prompt(namespace, name, user.id)
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     return _to_response(star)
@@ -77,7 +77,7 @@ def unstar_prompt(
     except PermissionError as exc:
         raise HTTPException(status_code=403, detail=str(exc)) from exc
     try:
-        store.unstar_prompt(namespace, name, user["id"])
+        store.unstar_prompt(namespace, name, user.id)
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 

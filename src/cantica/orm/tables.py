@@ -100,6 +100,7 @@ class PromptOrm(Base):
     star_count: Mapped[int] = mapped_column(Integer, default=0)
     fork_count: Mapped[int] = mapped_column(Integer, default=0)
     default_branch: Mapped[str] = mapped_column(String, default="main")
+    source: Mapped[str | None] = mapped_column(String, nullable=True)
     created_at: Mapped[str] = mapped_column(String)
     updated_at: Mapped[str] = mapped_column(String)
 
@@ -257,3 +258,95 @@ class InstanceConfigOrm(Base):
 
     key: Mapped[str] = mapped_column(String, primary_key=True)
     value: Mapped[str] = mapped_column(String)
+
+
+class FederationPeerOrm(Base):
+    """Registered read-only federation peers.  Stores the outbound API key (may be NULL)."""
+
+    __tablename__ = "federation_peers"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+    name: Mapped[str] = mapped_column(String, unique=True)
+    url: Mapped[str] = mapped_column(String)
+    api_key: Mapped[str | None] = mapped_column(String, nullable=True)
+    added_at: Mapped[str] = mapped_column(String)
+
+
+class ServerIdentityOrm(Base):
+    """Single-row table: this server's RSA public key.
+
+    The private key lives in ``<vault>/federation.key`` on disk (never stored here).
+    The ``id`` column is always ``"local"``.
+    """
+
+    __tablename__ = "server_identity"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True)  # always "local"
+    public_key_pem: Mapped[str] = mapped_column(String)  # plaintext PEM
+    created_at: Mapped[str] = mapped_column(String)
+
+
+class FederationOrm(Base):
+    """A named federation that this server belongs to."""
+
+    __tablename__ = "federations"
+    __table_args__ = (UniqueConstraint("name"),)
+
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+    name: Mapped[str] = mapped_column(String)
+    founding_key_enc: Mapped[str] = mapped_column(String)  # encrypted founder public key
+    created_at: Mapped[str] = mapped_column(String)
+
+
+class FederationMemberOrm(Base):
+    """A member of a federation.
+
+    ``public_key_enc`` and ``federate_url_enc`` are AES-256-GCM encrypted at rest.
+    """
+
+    __tablename__ = "federation_members"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+    federation_id: Mapped[str] = mapped_column(String, ForeignKey("federations.id"))
+    public_key_enc: Mapped[str] = mapped_column(String)   # encrypted member public key
+    federate_url_enc: Mapped[str] = mapped_column(String)  # encrypted federate URL
+    is_accepted: Mapped[bool] = mapped_column(Integer, default=1)
+    joined_at: Mapped[str] = mapped_column(String)
+    updated_at: Mapped[str] = mapped_column(String)
+
+
+class UserOrm(Base):
+    """A Cantica user account.
+
+    Passwords are stored as bcrypt hashes.  ``password_hash`` is NULL for
+    accounts managed by an external provider (OIDC, LDAP, etc.).
+    ``roles_json`` is a JSON-encoded list of role strings (e.g.
+    ``'["admin"]'``).
+    """
+
+    __tablename__ = "users"
+    __table_args__ = (UniqueConstraint("username"),)
+
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+    username: Mapped[str] = mapped_column(String, index=True)
+    email: Mapped[str] = mapped_column(String, default="")
+    password_hash: Mapped[str | None] = mapped_column(String, nullable=True)
+    roles_json: Mapped[str] = mapped_column(String, default='["user"]')
+    is_active: Mapped[int] = mapped_column(Integer, default=1)
+    created_at: Mapped[str] = mapped_column(String)
+    updated_at: Mapped[str] = mapped_column(String)
+
+
+class UserInviteOrm(Base):
+    """A one-time invite token created by an admin."""
+
+    __tablename__ = "user_invites"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+    token: Mapped[str] = mapped_column(String, unique=True, index=True)
+    email: Mapped[str] = mapped_column(String, default="")
+    created_by: Mapped[str] = mapped_column(String)
+    expires_at: Mapped[str] = mapped_column(String)
+    used_at: Mapped[str | None] = mapped_column(String, nullable=True)
+    used_by: Mapped[str | None] = mapped_column(String, nullable=True)
+    created_at: Mapped[str] = mapped_column(String)

@@ -16,7 +16,7 @@ from datetime import datetime
 from pydantic import BaseModel, computed_field
 
 # Local imports:
-from cantica.models import VariableSchema, Visibility
+from cantica.models import PromptSource, VariableSchema, Visibility
 
 
 class PromptCreate(BaseModel):
@@ -30,6 +30,7 @@ class PromptCreate(BaseModel):
     license: str = "MIT"
     visibility: Visibility = Visibility.public
     variables: list[VariableSchema] = []
+    source: PromptSource | None = None
 
 
 class PromptResponse(BaseModel):
@@ -47,6 +48,7 @@ class PromptResponse(BaseModel):
     star_count: int
     fork_count: int
     default_branch: str
+    source: PromptSource | None
     created_at: datetime
     updated_at: datetime
 

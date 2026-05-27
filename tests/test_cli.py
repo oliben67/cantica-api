@@ -678,6 +678,32 @@ def test_push_missing_local_prompt_exits_1(tmp_path: Path) -> None:
     assert "not found" in result.output
 
 
+def test_push_with_certificate(tmp_path: Path) -> None:
+    store, prompt, v1 = _seed(tmp_path)
+    mock_client = _mock_http_client(
+        get_map={
+            "/osteck/test": _mock_response(200, {"id": str(prompt.id)}),
+            "/osteck/test/versions": _mock_response(200, [{"sha": v1.sha}]),
+            "/osteck/test/tags": _mock_response(200, []),
+        },
+        post_map={},
+    )
+    with patch("cantica.cli.httpx.Client") as mock_cls:
+        mock_cls.return_value = mock_client
+        result = runner.invoke(
+            app,
+            [
+                "push", "osteck/test",
+                "--remote", "http://r:8042",
+                "--certificate", "cert-token-abc",
+                "--vault", str(tmp_path),
+            ],
+        )
+    assert result.exit_code == 0
+    ctor_kwargs = mock_cls.call_args.kwargs
+    assert ctor_kwargs["headers"].get("X-Cantica-Certificate") == "cert-token-abc"
+
+
 def test_push_includes_tags(tmp_path: Path) -> None:
     store, prompt, v1 = _seed(tmp_path)
     store.create_tag(prompt.id, "v1.0", v1.sha)
@@ -811,6 +837,59 @@ def test_pull_no_remote_exits_1(tmp_path: Path) -> None:
     result = runner.invoke(app, ["pull", "osteck/test", "--vault", str(tmp_path)])
     assert result.exit_code == 1
     assert "CANTICA_REMOTE_URL" in result.output
+
+
+def test_pull_with_certificate(tmp_path: Path) -> None:
+    remote = VersionStore(tmp_path / "remote")
+    r_prompt = remote.create_prompt("osteck", "test")
+    r_v1 = remote.commit(r_prompt.id, "Hello", "First", "osteck")
+
+    prompt_data = {
+        "id": str(r_prompt.id),
+        "namespace": "osteck",
+        "name": "test",
+        "description": "",
+        "tags": [],
+        "model_hints": [],
+        "license": "MIT",
+        "visibility": "public",
+        "variables": [],
+    }
+    v1_data = {
+        "sha": r_v1.sha,
+        "content": "Hello",
+        "message": "First",
+        "author": "osteck",
+        "branch": "main",
+        "parent_sha": None,
+        "created_at": r_v1.created_at.isoformat(),
+        "variables": [],
+        "tags": [],
+        "prompt_id": str(r_prompt.id),
+    }
+    mock_client = _mock_http_client(
+        get_map={
+            "/osteck/test": _mock_response(200, prompt_data),
+            "/osteck/test/versions": _mock_response(200, [v1_data]),
+            "/osteck/test/tags": _mock_response(200, []),
+        },
+        post_map={},
+    )
+    local_vault = tmp_path / "local"
+    with patch("cantica.cli.httpx.Client") as mock_cls:
+        mock_cls.return_value = mock_client
+        result = runner.invoke(
+            app,
+            [
+                "pull", "osteck/test",
+                "--remote", "http://r:8042",
+                "--certificate", "pull-cert-xyz",
+                "--vault", str(local_vault),
+            ],
+        )
+    assert result.exit_code == 0
+    ctor_kwargs = mock_cls.call_args.kwargs
+    assert ctor_kwargs["headers"].get("X-Cantica-Certificate") == "pull-cert-xyz"
 
 
 def test_pull_imports_tags(tmp_path: Path) -> None:
@@ -1461,6 +1540,13 @@ def test_namespace_list_shows_namespaces(tmp_path: Path) -> None:
     assert "alice" in result.output
     assert "bob" in result.output
     assert "proprietary" in result.output
+
+
+def test_namespace_list_shows_encoded_flag(tmp_path: Path) -> None:
+    runner.invoke(app, ["namespace-new", "encoded-ns", "--encoded", "--vault", str(tmp_path)])
+    result = runner.invoke(app, ["namespace-list", "--vault", str(tmp_path)])
+    assert result.exit_code == 0
+    assert "encoded" in result.output
 
 
 def test_namespace_new_with_description(tmp_path: Path) -> None:

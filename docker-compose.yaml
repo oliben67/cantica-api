@@ -28,8 +28,18 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+    networks:
+      default: {}
+      frontend:
+        aliases:
+          - api
     restart: unless-stopped
 
 volumes:
   postgres_data:
   cantica_data:
+
+networks:
+  frontend:
+    name: cantica_default
+    external: true

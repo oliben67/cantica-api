@@ -86,25 +86,39 @@ import json
 import logging
 import uuid
 from datetime import UTC, datetime
+from functools import cached_property
 from pathlib import Path
 
 # Third party imports:
 import httpx
 from sqlalchemy import delete, select, text, update
-from sqlalchemy.dialects.sqlite import insert as sqlite_insert
+from sqlalchemy.dialects.postgresql import insert as _pg_insert
+from sqlalchemy.dialects.sqlite import insert as _sqlite_insert
 
 # Local imports:
 from cantica.core.certificates import CertPayload, generate_token, verify_token
+from cantica.core.federation_crypto import (
+    decrypt_field,
+    derive_encryption_key,
+    encrypt_field,
+    generate_key_pair,
+    sign_message,
+)
 from cantica.core.resolver import parse_address
 from cantica.database import open_session
 from cantica.models import (
     Branch,
     Collection,
     Comment,
+    Federation,
+    FederationMember,
+    FederationPeer,
     Fork,
     Namespace,
     NamespaceCert,
     Prompt,
+    PromptSource,
+    ServerIdentity,
     Star,
     Tag,
     VariableSchema,
@@ -112,19 +126,25 @@ from cantica.models import (
     Visibility,
     Webhook,
 )
+from cantica.models.user import Role, User
 from cantica.orm.tables import (
     ApiKeyOrm,
     BranchOrm,
     CollectionItemOrm,
     CollectionOrm,
     CommentOrm,
+    FederationMemberOrm,
+    FederationOrm,
+    FederationPeerOrm,
     ForkOrm,
     InstanceConfigOrm,
     NamespaceCertOrm,
     NamespaceOrm,
     PromptOrm,
+    ServerIdentityOrm,
     StarOrm,
     TagOrm,
+    UserOrm,
     VersionOrm,
     WebhookOrm,
 )
@@ -167,6 +187,7 @@ def _load_variables(raw: str) -> list[VariableSchema]:
 
 def _orm_to_prompt(row: PromptOrm) -> Prompt:
     """Convert a ``PromptOrm`` row to a ``Prompt`` Pydantic model."""
+    source = PromptSource(**json.loads(row.source)) if row.source else None
     return Prompt(
         id=row.id,
         namespace=row.namespace,
@@ -180,6 +201,7 @@ def _orm_to_prompt(row: PromptOrm) -> Prompt:
         star_count=row.star_count,
         fork_count=row.fork_count,
         default_branch=row.default_branch,
+        source=source,
         created_at=_from_iso(row.created_at),
         updated_at=_from_iso(row.updated_at),
     )
@@ -206,6 +228,11 @@ class VersionStore:
     def _dialect(self) -> str:
         """Return the SQLAlchemy dialect name (e.g. ``'sqlite'`` or ``'postgresql'``)."""
         return self._engine.dialect.name
+
+    @property
+    def _insert(self):
+        """Return the correct dialect-specific ``insert`` for ON CONFLICT support."""
+        return _pg_insert if self._dialect == "postgresql" else _sqlite_insert
 
     def close(self) -> None:
         """Close the session and dispose the connection pool."""
@@ -261,7 +288,7 @@ class VersionStore:
             encoded=encoded,
         )
         self.session.execute(
-            sqlite_insert(NamespaceOrm)
+            self._insert(NamespaceOrm)
             .values(
                 name=ns.name,
                 description=ns.description,
@@ -443,6 +470,7 @@ class VersionStore:
         license: str = "MIT",
         visibility: Visibility = Visibility.public,
         variables: list[VariableSchema] | None = None,
+        source: PromptSource | None = None,
     ) -> Prompt:
         """Create a new prompt in *namespace* (auto-creating the namespace if needed)."""
         self.create_namespace(namespace)
@@ -455,9 +483,10 @@ class VersionStore:
             license=license,
             visibility=visibility,
             variables=variables or [],
+            source=source,
         )
         self.session.execute(
-            sqlite_insert(PromptOrm).values(
+            self._insert(PromptOrm).values(
                 id=prompt.id,
                 namespace=prompt.namespace,
                 name=prompt.name,
@@ -470,6 +499,7 @@ class VersionStore:
                 star_count=prompt.star_count,
                 fork_count=prompt.fork_count,
                 default_branch=prompt.default_branch,
+                source=prompt.source.model_dump_json() if prompt.source else None,
                 created_at=_iso(prompt.created_at),
                 updated_at=_iso(prompt.updated_at),
             )
@@ -636,7 +666,7 @@ class VersionStore:
 
         # Insert version first so BranchOrm FK (head_sha → versions.sha) is satisfied.
         self.session.execute(
-            sqlite_insert(VersionOrm).values(
+            self._insert(VersionOrm).values(
                 sha=sha,
                 prompt_id=prompt_id,
                 branch=branch,
@@ -658,7 +688,7 @@ class VersionStore:
             )
         else:
             self.session.execute(
-                sqlite_insert(BranchOrm).values(
+                self._insert(BranchOrm).values(
                     name=branch,
                     prompt_id=prompt_id,
                     head_sha=sha,
@@ -735,7 +765,7 @@ class VersionStore:
             self.blobs.put(content)
 
         self.session.execute(
-            sqlite_insert(VersionOrm).values(
+            self._insert(VersionOrm).values(
                 sha=sha,
                 prompt_id=prompt_id,
                 branch=branch,
@@ -761,7 +791,7 @@ class VersionStore:
             )
         else:
             self.session.execute(
-                sqlite_insert(BranchOrm).values(
+                self._insert(BranchOrm).values(
                     name=branch,
                     prompt_id=prompt_id,
                     head_sha=sha,
@@ -876,7 +906,7 @@ class VersionStore:
         """Create or update a tag *tag_name* pointing to *sha* for *prompt_id*."""
         created_at = _utcnow()
         ts = _iso(created_at)
-        stmt = sqlite_insert(TagOrm).values(
+        stmt = self._insert(TagOrm).values(
             prompt_id=prompt_id, name=tag_name, sha=sha, created_at=ts
         )
         self.session.execute(
@@ -931,7 +961,7 @@ class VersionStore:
         """Create or reset *branch_name* to point at *from_sha*."""
         created_at = _utcnow()
         ts = _iso(created_at)
-        stmt = sqlite_insert(BranchOrm).values(
+        stmt = self._insert(BranchOrm).values(
             name=branch_name, prompt_id=prompt_id, head_sha=from_sha, created_at=ts, updated_at=ts
         )
         self.session.execute(
@@ -1087,6 +1117,7 @@ class VersionStore:
             license=source.license,
             visibility=source.visibility,
             variables=source.variables,
+            source=source.source,
         )
 
         # re-commit all versions oldest-first under the new prompt_id
@@ -1113,7 +1144,7 @@ class VersionStore:
             fork_slug=dest.slug,
         )
         self.session.execute(
-            sqlite_insert(ForkOrm).values(
+            self._insert(ForkOrm).values(
                 id=fork_record.id,
                 source_slug=fork_record.source_slug,
                 source_sha=fork_record.source_sha,
@@ -1267,6 +1298,570 @@ class VersionStore:
         )
         self.session.commit()
         return {"id": row.id, "name": row.name}
+
+    # ------------------------------------------------------------------ #
+    # Users                                                                #
+    # ------------------------------------------------------------------ #
+
+    def create_user(
+        self,
+        username: str,
+        email: str = "",
+        password_hash: str | None = None,
+        roles: list[str] | None = None,
+    ) -> User:
+        """Create a new user and return a ``User`` model."""
+        import json as _json  # noqa: PLC0415
+
+        user_id = str(uuid.uuid4())
+        now = _iso(_utcnow())
+        self.session.add(
+            UserOrm(
+                id=user_id,
+                username=username,
+                email=email,
+                password_hash=password_hash,
+                roles_json=_json.dumps(roles or ["user"]),
+                is_active=1,
+                created_at=now,
+                updated_at=now,
+            )
+        )
+        self.session.commit()
+        return User(
+            id=user_id,
+            username=username,
+            email=email,
+            roles=[Role(r) for r in (roles or ["user"])],
+            is_active=True,
+            created_at=_from_iso(now),
+        )
+
+    def get_user_by_id(self, user_id: str) -> UserOrm | None:
+        """Return the ``UserOrm`` row for *user_id*, or ``None``."""
+        return self.session.execute(
+            select(UserOrm).where(UserOrm.id == user_id)
+        ).scalar_one_or_none()
+
+    def get_user_by_username(self, username: str) -> UserOrm | None:
+        """Return the ``UserOrm`` row for *username*, or ``None``."""
+        return self.session.execute(
+            select(UserOrm).where(UserOrm.username == username)
+        ).scalar_one_or_none()
+
+    def list_users(self) -> list[User]:
+        """Return all users."""
+        rows = self.session.execute(select(UserOrm).order_by(UserOrm.created_at)).scalars().all()
+        return [self.orm_to_user(r) for r in rows]
+
+    def update_user(
+        self,
+        user_id: str,
+        *,
+        email: str | None = None,
+        password_hash: str | None = None,
+        roles: list[str] | None = None,
+        is_active: bool | None = None,
+    ) -> User | None:
+        """Partial-update user fields; return updated User or None if not found."""
+        import json as _json  # noqa: PLC0415
+
+        row = self.get_user_by_id(user_id)
+        if row is None:
+            return None
+        values: dict = {"updated_at": _iso(_utcnow())}
+        if email is not None:
+            values["email"] = email
+        if password_hash is not None:
+            values["password_hash"] = password_hash
+        if roles is not None:
+            values["roles_json"] = _json.dumps(roles)
+        if is_active is not None:
+            values["is_active"] = int(is_active)
+        self.session.execute(update(UserOrm).where(UserOrm.id == user_id).values(**values))
+        self.session.commit()
+        return self.orm_to_user(self.get_user_by_id(user_id))  # type: ignore[arg-type]
+
+    def delete_user(self, user_id: str) -> bool:
+        """Hard-delete a user; return True if it existed."""
+        result = self.session.execute(delete(UserOrm).where(UserOrm.id == user_id))
+        self.session.commit()
+        return result.rowcount > 0  # type: ignore[attr-defined]
+
+    def orm_to_user(self, row: UserOrm) -> User:
+        """Convert a ``UserOrm`` row to a ``User`` model."""
+        import json as _json  # noqa: PLC0415
+
+        roles = [Role(r) for r in _json.loads(row.roles_json or '["user"]')]
+        return User(
+            id=row.id,
+            username=row.username,
+            email=row.email or "",
+            roles=roles,
+            is_active=bool(row.is_active),
+            created_at=_from_iso(row.created_at),
+        )
+
+    # ------------------------------------------------------------------ #
+    # User invites                                                         #
+    # ------------------------------------------------------------------ #
+
+    def create_invite(
+        self,
+        email: str,
+        created_by: str,
+        expires_in_hours: int = 168,
+    ) -> dict:
+        """Create a one-time invite token; return the invite record as a dict."""
+        import secrets  # noqa: PLC0415
+        from datetime import timedelta  # noqa: PLC0415
+
+        from cantica.orm.tables import UserInviteOrm  # noqa: PLC0415
+
+        invite_id = str(uuid.uuid4())
+        token = secrets.token_urlsafe(32)
+        now = _utcnow()
+        expires_at = now + timedelta(hours=expires_in_hours)
+        self.session.add(
+            UserInviteOrm(
+                id=invite_id,
+                token=token,
+                email=email,
+                created_by=created_by,
+                expires_at=_iso(expires_at),
+                created_at=_iso(now),
+            )
+        )
+        self.session.commit()
+        return {
+            "id": invite_id,
+            "token": token,
+            "email": email,
+            "expires_at": expires_at,
+            "used": False,
+            "created_at": now,
+        }
+
+    def get_invite_by_token(self, token: str) -> dict | None:
+        """Return invite record dict for *token*, or None if not found."""
+        from cantica.orm.tables import UserInviteOrm  # noqa: PLC0415
+
+        row = self.session.execute(
+            select(UserInviteOrm).where(UserInviteOrm.token == token)
+        ).scalar_one_or_none()
+        if row is None:
+            return None
+        return {
+            "id": row.id,
+            "token": row.token,
+            "email": row.email,
+            "created_by": row.created_by,
+            "expires_at": _from_iso(row.expires_at),
+            "used_at": _from_iso(row.used_at) if row.used_at else None,
+            "used_by": row.used_by,
+            "created_at": _from_iso(row.created_at),
+        }
+
+    def use_invite(self, token: str, user_id: str) -> bool:
+        """Mark an invite as used; return False if not found or already used."""
+        from cantica.orm.tables import UserInviteOrm  # noqa: PLC0415
+
+        row = self.session.execute(
+            select(UserInviteOrm).where(UserInviteOrm.token == token)
+        ).scalar_one_or_none()
+        if row is None or row.used_at is not None:
+            return False
+        self.session.execute(
+            update(UserInviteOrm)
+            .where(UserInviteOrm.token == token)
+            .values(used_at=_iso(_utcnow()), used_by=user_id)
+        )
+        self.session.commit()
+        return True
+
+    def list_invites(self) -> list[dict]:
+        """Return all invites ordered newest first."""
+        from cantica.orm.tables import UserInviteOrm  # noqa: PLC0415
+
+        rows = (
+            self.session.execute(
+                select(UserInviteOrm).order_by(UserInviteOrm.created_at.desc())
+            )
+            .scalars()
+            .all()
+        )
+        return [
+            {
+                "id": r.id,
+                "token": r.token,
+                "email": r.email,
+                "expires_at": _from_iso(r.expires_at),
+                "used": r.used_at is not None,
+                "created_at": _from_iso(r.created_at),
+            }
+            for r in rows
+        ]
+
+    # ------------------------------------------------------------------ #
+    # Federation peers                                                     #
+    # ------------------------------------------------------------------ #
+
+    def add_federation_peer(
+        self, name: str, url: str, api_key: str | None = None
+    ) -> FederationPeer:
+        """Register a new read-only federation peer and return it."""
+        peer = FederationPeer(name=name, url=url.rstrip("/"), api_key=api_key)
+        self.session.execute(
+            self._insert(FederationPeerOrm).values(
+                id=peer.id,
+                name=peer.name,
+                url=peer.url,
+                api_key=peer.api_key,
+                added_at=_iso(peer.added_at),
+            )
+        )
+        self.session.commit()
+        return peer
+
+    def list_federation_peers(self) -> list[FederationPeer]:
+        """Return all registered federation peers."""
+        rows = self.session.execute(select(FederationPeerOrm)).scalars().all()
+        return [
+            FederationPeer(
+                id=r.id,
+                name=r.name,
+                url=r.url,
+                api_key=r.api_key,
+                added_at=_from_iso(r.added_at),
+            )
+            for r in rows
+        ]
+
+    def get_federation_peer(self, peer_id: str) -> FederationPeer | None:
+        """Return the peer with *peer_id*, or ``None`` if not found."""
+        row = self.session.execute(
+            select(FederationPeerOrm).where(FederationPeerOrm.id == peer_id)
+        ).scalar_one_or_none()
+        if row is None:
+            return None
+        return FederationPeer(
+            id=row.id, name=row.name, url=row.url, api_key=row.api_key,
+            added_at=_from_iso(row.added_at),
+        )
+
+    def remove_federation_peer(self, peer_id: str) -> bool:
+        """Delete the peer with *peer_id*; return ``True`` if it existed."""
+        result = self.session.execute(
+            delete(FederationPeerOrm).where(FederationPeerOrm.id == peer_id)
+        )
+        self.session.commit()
+        return result.rowcount > 0  # type: ignore[attr-defined]
+
+    # ------------------------------------------------------------------ #
+    # Federation protocol                                                  #
+    # ------------------------------------------------------------------ #
+
+    def _federation_key_path(self) -> Path:
+        """Return the path to the federation RSA private key file."""
+        return self.root / "federation.key"
+
+    @cached_property
+    def _fed_enc_key(self) -> bytes:
+        """Derive AES-256 at-rest encryption key from the federation private key (cached)."""
+        return derive_encryption_key(self._read_federation_private_key())
+
+    def _read_federation_private_key(self) -> str:
+        """Read the federation private key from disk.  Raises ``FileNotFoundError`` if absent."""
+        return self._federation_key_path().read_text()
+
+    def get_or_create_identity(self) -> ServerIdentity:
+        """Return this server's federation identity, generating the key pair if not yet created."""
+        key_path = self._federation_key_path()
+        if not key_path.exists():
+            pub, priv = generate_key_pair()
+            key_path.write_text(priv)
+            key_path.chmod(0o600)
+            now = _iso(_utcnow())
+            self.session.execute(
+                self._insert(ServerIdentityOrm)
+                .values(id="local", public_key_pem=pub, created_at=now)
+                .on_conflict_do_nothing()
+            )
+            self.session.commit()
+            return ServerIdentity(public_key_pem=pub, created_at=_from_iso(now))
+        # Key file exists — ensure the DB row is present
+        priv = key_path.read_text()
+        # Third party imports:
+        from cryptography.hazmat.primitives.serialization import (  # noqa: PLC0415
+            Encoding,
+            PublicFormat,
+            load_pem_private_key,
+        )
+
+        pk = load_pem_private_key(priv.encode(), password=None)
+        pub = pk.public_key().public_bytes(
+            encoding=Encoding.PEM, format=PublicFormat.SubjectPublicKeyInfo
+        ).decode()
+        row = self.session.execute(
+            select(ServerIdentityOrm).where(ServerIdentityOrm.id == "local")
+        ).scalar_one_or_none()
+        if row is None:
+            now = _iso(_utcnow())
+            self.session.execute(
+                self._insert(ServerIdentityOrm).values(
+                    id="local", public_key_pem=pub, created_at=now
+                )
+            )
+            self.session.commit()
+            return ServerIdentity(public_key_pem=pub, created_at=_from_iso(now))
+        return ServerIdentity(
+            public_key_pem=row.public_key_pem, created_at=_from_iso(row.created_at)
+        )
+
+    def sign_federation_message(self, data: bytes) -> str:
+        """Sign *data* with this server's federation private key; return base64 signature."""
+        return sign_message(data, self._read_federation_private_key())
+
+    def create_federation(self, name: str) -> tuple[Federation, FederationMember]:
+        """Create a new federation and add this server as the founding member."""
+        identity = self.get_or_create_identity()
+        enc_key = self._fed_enc_key
+        fed_id = str(uuid.uuid4())
+        now = _iso(_utcnow())
+        self.session.execute(
+            self._insert(FederationOrm).values(
+                id=fed_id,
+                name=name,
+                founding_key_enc=encrypt_field(identity.public_key_pem, enc_key),
+                created_at=now,
+            )
+        )
+        member = self._insert_member(
+            fed_id, identity.public_key_pem, "", is_accepted=True, enc_key=enc_key
+        )
+        self.session.commit()
+        fed = Federation(
+            id=fed_id,
+            name=name,
+            founding_key=identity.public_key_pem,
+            is_founder=True,
+            created_at=_from_iso(now),
+        )
+        return fed, member
+
+    def get_federation(self, federation_id: str) -> Federation | None:
+        """Return the federation with *federation_id*, or ``None`` if not found."""
+        row = self.session.execute(
+            select(FederationOrm).where(FederationOrm.id == federation_id)
+        ).scalar_one_or_none()
+        if row is None:
+            return None
+        return self._orm_to_federation(row)
+
+    def get_federation_by_name(self, name: str) -> Federation | None:
+        """Return the federation with *name*, or ``None`` if not found."""
+        row = self.session.execute(
+            select(FederationOrm).where(FederationOrm.name == name)
+        ).scalar_one_or_none()
+        if row is None:
+            return None
+        return self._orm_to_federation(row)
+
+    def list_federations(self) -> list[Federation]:
+        """Return all federations this server belongs to."""
+        rows = self.session.execute(select(FederationOrm)).scalars().all()
+        return [self._orm_to_federation(r) for r in rows]
+
+    def _orm_to_federation(self, row: FederationOrm) -> Federation:
+        """Convert a ``FederationOrm`` row to a ``Federation`` model."""
+        enc_key = self._fed_enc_key
+        founding_key = decrypt_field(row.founding_key_enc, enc_key)
+        identity = self.get_or_create_identity()
+        is_founder = founding_key == identity.public_key_pem
+        return Federation(
+            id=row.id,
+            name=row.name,
+            founding_key=founding_key,
+            is_founder=is_founder,
+            created_at=_from_iso(row.created_at),
+        )
+
+    def add_federation_member(
+        self,
+        federation_id: str,
+        public_key: str,
+        federate_url: str,
+        *,
+        is_accepted: bool = True,
+    ) -> FederationMember:
+        """Add or update a member in *federation_id*."""
+        enc_key = self._fed_enc_key
+        existing = self.get_member_by_key(federation_id, public_key)
+        if existing is not None:
+            self.session.execute(
+                update(FederationMemberOrm)
+                .where(FederationMemberOrm.id == existing.id)
+                .values(
+                    federate_url_enc=encrypt_field(federate_url, enc_key),
+                    is_accepted=int(is_accepted),
+                    updated_at=_iso(_utcnow()),
+                )
+            )
+            self.session.commit()
+            return FederationMember(
+                id=existing.id,
+                federation_id=federation_id,
+                public_key=public_key,
+                federate_url=federate_url,
+                is_accepted=is_accepted,
+                joined_at=existing.joined_at,
+                updated_at=_utcnow(),
+            )
+        return self._insert_member(
+            federation_id, public_key, federate_url, is_accepted=is_accepted, enc_key=enc_key
+        )
+
+    def _insert_member(
+        self,
+        federation_id: str,
+        public_key: str,
+        federate_url: str,
+        *,
+        is_accepted: bool,
+        enc_key: bytes,
+    ) -> FederationMember:
+        """Insert a new member row and return a ``FederationMember`` model."""
+        now = _utcnow()
+        member_id = str(uuid.uuid4())
+        self.session.execute(
+            self._insert(FederationMemberOrm).values(
+                id=member_id,
+                federation_id=federation_id,
+                public_key_enc=encrypt_field(public_key, enc_key),
+                federate_url_enc=encrypt_field(federate_url, enc_key),
+                is_accepted=int(is_accepted),
+                joined_at=_iso(now),
+                updated_at=_iso(now),
+            )
+        )
+        self.session.commit()
+        return FederationMember(
+            id=member_id,
+            federation_id=federation_id,
+            public_key=public_key,
+            federate_url=federate_url,
+            is_accepted=is_accepted,
+            joined_at=now,
+            updated_at=now,
+        )
+
+    def get_member_by_key(
+        self, federation_id: str, public_key: str
+    ) -> FederationMember | None:
+        """Find a member in *federation_id* by their public key (decrypts all rows)."""
+        rows = (
+            self.session.execute(
+                select(FederationMemberOrm).where(
+                    FederationMemberOrm.federation_id == federation_id
+                )
+            )
+            .scalars()
+            .all()
+        )
+        enc_key = self._fed_enc_key
+        for row in rows:
+            try:
+                pk = decrypt_field(row.public_key_enc, enc_key)
+            except Exception:  # noqa: BLE001
+                continue
+            if pk == public_key:
+                return self._orm_to_member(row, pk)
+        return None
+
+    def _orm_to_member(
+        self,
+        row: FederationMemberOrm,
+        decrypted_key: str | None = None,
+    ) -> FederationMember:
+        """Convert a ``FederationMemberOrm`` row to a ``FederationMember`` model."""
+        enc_key = self._fed_enc_key
+        pk = decrypted_key or decrypt_field(row.public_key_enc, enc_key)
+        url = decrypt_field(row.federate_url_enc, enc_key)
+        return FederationMember(
+            id=row.id,
+            federation_id=row.federation_id,
+            public_key=pk,
+            federate_url=url,
+            is_accepted=bool(row.is_accepted),
+            joined_at=_from_iso(row.joined_at),
+            updated_at=_from_iso(row.updated_at),
+        )
+
+    def update_member_status(
+        self, member_id: str, is_accepted: bool
+    ) -> FederationMember | None:
+        """Update the ``is_accepted`` status for member *member_id*.
+
+        Returns the updated model, or ``None`` if the member was not found.
+        """
+        row = self.session.execute(
+            select(FederationMemberOrm).where(FederationMemberOrm.id == member_id)
+        ).scalar_one_or_none()
+        if row is None:
+            return None
+        self.session.execute(
+            update(FederationMemberOrm)
+            .where(FederationMemberOrm.id == member_id)
+            .values(is_accepted=int(is_accepted), updated_at=_iso(_utcnow()))
+        )
+        self.session.commit()
+        return self._orm_to_member(row)
+
+    def list_federation_members(
+        self,
+        federation_id: str,
+        *,
+        accepted_only: bool = True,
+    ) -> list[FederationMember]:
+        """Return members of *federation_id*, optionally restricted to accepted ones."""
+        stmt = select(FederationMemberOrm).where(
+            FederationMemberOrm.federation_id == federation_id
+        )
+        if accepted_only:
+            stmt = stmt.where(FederationMemberOrm.is_accepted == 1)
+        rows = self.session.execute(stmt).scalars().all()
+        return [self._orm_to_member(r) for r in rows]
+
+    def remove_federation_member(self, member_id: str) -> bool:
+        """Delete member *member_id*; return ``True`` if it existed."""
+        result = self.session.execute(
+            delete(FederationMemberOrm).where(FederationMemberOrm.id == member_id)
+        )
+        self.session.commit()
+        return result.rowcount > 0  # type: ignore[attr-defined]
+
+    def reconcile_members_table(
+        self,
+        federation_id: str,
+        submitted: list[dict],
+    ) -> list[FederationMember]:
+        """Founder-only: merge a submitted member view, prune inactive, return canonical list.
+
+        *submitted* is a list of ``{public_key, federate_url, is_accepted}`` dicts.
+        """
+        canonical = self.list_federation_members(federation_id, accepted_only=False)
+        known_keys = {m.public_key for m in canonical}
+        for item in submitted:
+            pk = item.get("public_key", "")
+            url = item.get("federate_url", "")
+            acc = bool(item.get("is_accepted", True))
+            if pk and pk not in known_keys:
+                self.add_federation_member(federation_id, pk, url, is_accepted=acc)
+        # Prune members that want to leave (is_accepted=False)
+        for m in canonical:
+            if not m.is_accepted:
+                self.remove_federation_member(m.id)
+        return self.list_federation_members(federation_id, accepted_only=True)
 
     # ------------------------------------------------------------------ #
     # cantica:// URI resolution                                            #

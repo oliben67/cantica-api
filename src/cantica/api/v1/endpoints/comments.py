@@ -55,7 +55,7 @@ def add_comment(
     except PermissionError as exc:
         raise HTTPException(status_code=403, detail=str(exc)) from exc
     try:
-        comment = store.add_comment(namespace, name, body.body, user["id"], body.version_sha)
+        comment = store.add_comment(namespace, name, body.body, user.id, body.version_sha)
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     return _to_response(comment)

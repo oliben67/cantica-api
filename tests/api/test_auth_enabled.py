@@ -41,10 +41,10 @@ def _insert_key(store: VersionStore, name: str = "test") -> str:
     return raw
 
 
-def test_missing_key_returns_401(auth_client: TestClient) -> None:
+def test_anonymous_can_read_public_prompts(auth_client: TestClient) -> None:
+    """Unauthenticated callers get anonymous (readonly) role and can list public prompts."""
     r = auth_client.get("/v1/prompts")
-    assert r.status_code == 401
-    assert "required" in r.json()["detail"]
+    assert r.status_code == 200
 
 
 def test_invalid_key_returns_401(auth_client: TestClient) -> None:

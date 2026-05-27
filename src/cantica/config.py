@@ -57,6 +57,26 @@ class Settings(BaseSettings):
     port: int = 8042
     log_level: str = "info"
     remote_url: str = ""
+    federation_sync_interval: int = 3600  # seconds between background sync cycles
+
+    # User auth / session settings
+    auth_config_path: Path | None = None   # path to auth.yaml; None = defaults only
+    jwt_secret: str = ""                   # HS256 secret; auto-derived if empty
+    jwt_expire_minutes: int = 60           # session token lifetime
+
+    # Federation permissions
+    federation_policy_path: Path | None = None  # path to federation-policy.yaml
+
+    # Base URL used in invite emails and QR codes (auto-detected from request if empty)
+    base_url: str = ""
+
+    # SMTP — leave smtp_host empty to disable email sending
+    smtp_host: str = ""
+    smtp_port: int = 587
+    smtp_user: str = ""
+    smtp_password: str = ""
+    smtp_from: str = "noreply@cantica.local"
+    smtp_tls: bool = True
 
     model_config = SettingsConfigDict(env_prefix="CANTICA_", env_file=".env")
 

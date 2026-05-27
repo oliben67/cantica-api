@@ -33,6 +33,7 @@ from pathlib import Path
 # Third party imports:
 from sqlalchemy import Engine, create_engine, event, text
 from sqlalchemy.orm import Session
+from sqlalchemy.exc import SQLAlchemyError
 
 # Local imports:
 from cantica.core.certificates import generate_instance_secret
@@ -84,6 +85,25 @@ _PG_FTS_DDL = [
 ]
 
 
+class _ResettingSession(Session):
+    """Session subclass that auto-rollbacks on execute failures.
+
+    Postgres aborts the entire transaction on any statement error; without an
+    explicit ROLLBACK every subsequent statement on the same session fails with
+    ``InFailedSqlTransaction``.  This wrapper calls ``rollback()`` before
+    re-raising so the session stays usable across requests.
+    """
+
+    def execute(self, statement, params=None, execution_options=None, **kwargs):  # type: ignore[override]
+        try:
+            if execution_options is not None:
+                return super().execute(statement, params, execution_options=execution_options, **kwargs)
+            return super().execute(statement, params, **kwargs)
+        except SQLAlchemyError:
+            self.rollback()
+            raise
+
+
 def open_session(
     url_or_path: str | Path,
     *,
@@ -126,7 +146,7 @@ def open_session(
             for ddl in _PG_FTS_DDL:
                 conn.execute(text(ddl))
 
-    session = Session(engine, autoflush=False)
+    session = _ResettingSession(engine, autoflush=False)
     if create_tables:
         _ensure_instance_config(session)
     return engine, session

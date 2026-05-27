@@ -95,6 +95,7 @@ def create_prompt(
         license=body.license,
         visibility=body.visibility,
         variables=body.variables,
+        source=body.source,
     )
     return _to_response(prompt)
 

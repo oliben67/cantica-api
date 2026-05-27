@@ -117,3 +117,15 @@ def test_remove_item_from_collection(client: TestClient, collection: dict, promp
 def test_remove_item_collection_not_found(client: TestClient) -> None:
     r = client.delete("/v1/collections/nobody/nope/items/ns/p")
     assert r.status_code == 404
+
+
+def test_get_collection_items_store_error_returns_404(client: TestClient, collection: dict) -> None:
+    """list_collection_items raising KeyError maps to 404 (lines 121-122 in collections.py)."""
+    from unittest.mock import patch  # noqa: PLC0415
+
+    from cantica.services.version_store import VersionStore  # noqa: PLC0415
+
+    with patch.object(VersionStore, "list_collection_items", side_effect=KeyError("gone")):
+        r = client.get("/v1/collections/ns/favs")
+    assert r.status_code == 404
+    assert "gone" in r.json()["detail"]
