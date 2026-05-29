@@ -24,7 +24,6 @@ from cantica.core.federation_crypto import (
 from cantica.main import create_app
 from cantica.services.version_store import VersionStore
 
-
 # ── Fixtures ──────────────────────────────────────────────────────────────────
 
 
@@ -82,9 +81,11 @@ def _make_http_error_mock(exc: Exception) -> MagicMock:
 
 def _signed_request(store: VersionStore, **kwargs) -> dict:
     """Build a FederateRequest body with a valid RSA-PSS signature."""
+    # Local imports:
     from cantica.schemas.federate import FederateRequest  # noqa: PLC0415
 
     payload = FederateRequest(signature="", **kwargs)
+    # Standard library imports:
     import json as _json  # noqa: PLC0415
 
     canonical = _json.dumps(payload.model_dump(exclude={"signature"}), sort_keys=True).encode()
@@ -180,9 +181,12 @@ def test_eject_member_not_founder_returns_403(
     store.get_or_create_identity()
     fed, _ = store.create_federation("my-fed")
     # Overwrite the founding_key_enc with a *different* server's key so is_founder=False
+    # Third party imports:
+    from sqlalchemy import update  # noqa: PLC0415
+
+    # Local imports:
     from cantica.core.federation_crypto import encrypt_field  # noqa: PLC0415
     from cantica.orm.tables import FederationOrm  # noqa: PLC0415
-    from sqlalchemy import update  # noqa: PLC0415
 
     pub2, _priv2 = generate_key_pair()
     enc_key = store._fed_enc_key
@@ -228,6 +232,7 @@ def test_join_federation_success(client: TestClient, federation: dict, store: Ve
 def test_join_federation_server_error_returns_502(
     client: TestClient, federation: dict
 ) -> None:
+    # Third party imports:
     import httpx  # noqa: PLC0415
 
     fed_id = federation["id"]
@@ -280,6 +285,7 @@ def test_leave_federation_notify_error_still_ok(
     # Add a second member with a federate_url so the leave notification fires
     pub2, _priv2 = generate_key_pair()
     store.add_federation_member(fed.id, pub2, "http://peer.example/v1/federate")
+    # Third party imports:
     import httpx  # noqa: PLC0415
 
     mock_c = _make_http_error_mock(httpx.ConnectError("refused"))
@@ -315,9 +321,12 @@ def test_sync_federation_no_founder_url_returns_400(
     store.get_or_create_identity()
     fed, _ = store.create_federation("my-fed")
     # Overwrite founding_key_enc so is_founder=False, but leave member URL empty
+    # Third party imports:
+    from sqlalchemy import update  # noqa: PLC0415
+
+    # Local imports:
     from cantica.core.federation_crypto import encrypt_field  # noqa: PLC0415
     from cantica.orm.tables import FederationOrm  # noqa: PLC0415
-    from sqlalchemy import update  # noqa: PLC0415
 
     pub2, _priv2 = generate_key_pair()
     enc_key = store._fed_enc_key
@@ -339,9 +348,12 @@ def test_sync_federation_http_error_returns_502(
     fed, _ = store.create_federation("my-fed")
     # Add a second server as founder; make the local server non-founder
     pub2, priv2 = generate_key_pair()
+    # Third party imports:
+    from sqlalchemy import update  # noqa: PLC0415
+
+    # Local imports:
     from cantica.core.federation_crypto import encrypt_field  # noqa: PLC0415
     from cantica.orm.tables import FederationMemberOrm, FederationOrm  # noqa: PLC0415
-    from sqlalchemy import update  # noqa: PLC0415
 
     enc_key = store._fed_enc_key
     # Override founding_key to pub2 so local server is NOT founder
@@ -353,6 +365,7 @@ def test_sync_federation_http_error_returns_502(
     store.session.commit()
     # Add the founder as a member with a URL
     store.add_federation_member(fed.id, pub2, "http://founder.example/v1/federate")
+    # Third party imports:
     import httpx  # noqa: PLC0415
 
     mock_c = _make_http_error_mock(httpx.ConnectError("refused"))
@@ -575,9 +588,12 @@ def test_federate_sync_not_founder_returns_403(
     store.get_or_create_identity()
     fed, _ = store.create_federation("my-fed")
     # Override to make local server non-founder
+    # Third party imports:
+    from sqlalchemy import update  # noqa: PLC0415
+
+    # Local imports:
     from cantica.core.federation_crypto import encrypt_field  # noqa: PLC0415
     from cantica.orm.tables import FederationOrm  # noqa: PLC0415
-    from sqlalchemy import update  # noqa: PLC0415
 
     pub2, priv2 = generate_key_pair()
     enc_key = store._fed_enc_key
@@ -701,8 +717,10 @@ def _signed_request_with_key(
     target_key: str | None = None,
 ) -> dict:
     """Build a FederateRequest body signed with *priv_key*."""
+    # Standard library imports:
     import json as _json  # noqa: PLC0415
 
+    # Local imports:
     from cantica.schemas.federate import FederateRequest  # noqa: PLC0415
 
     payload = FederateRequest(
@@ -751,6 +769,7 @@ def test_eject_member_notifies_remaining_members(
 
 async def test_send_federate_helper(store: VersionStore) -> None:
     """_send_federate executes an async POST to the given URL (lines 219-220)."""
+    # Local imports:
     from cantica.api.v1.endpoints.federate import _send_federate  # noqa: PLC0415
     from cantica.schemas.federate import FederateRequest  # noqa: PLC0415
 
@@ -824,9 +843,12 @@ def test_sync_federation_returns_encrypted_table(
     fed, _ = store.create_federation("my-fed")
     # Make local server a non-founder by changing the founding key
     pub2, priv2 = generate_key_pair()
+    # Third party imports:
+    from sqlalchemy import update  # noqa: PLC0415
+
+    # Local imports:
     from cantica.core.federation_crypto import encrypt_field  # noqa: PLC0415
     from cantica.orm.tables import FederationOrm  # noqa: PLC0415
-    from sqlalchemy import update  # noqa: PLC0415
 
     enc_key = store._fed_enc_key
     store.session.execute(
@@ -881,9 +903,12 @@ def test_federate_eject_no_target_not_our_identity(
     fed, _ = store.create_federation("my-fed")
     # Replace founding key with pub2 so our identity is not the founder
     pub2, priv2 = generate_key_pair()
+    # Third party imports:
+    from sqlalchemy import update  # noqa: PLC0415
+
+    # Local imports:
     from cantica.core.federation_crypto import encrypt_field  # noqa: PLC0415
     from cantica.orm.tables import FederationOrm  # noqa: PLC0415
-    from sqlalchemy import update  # noqa: PLC0415
 
     enc_key = store._fed_enc_key
     store.session.execute(

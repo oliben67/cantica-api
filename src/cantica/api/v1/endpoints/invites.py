@@ -10,13 +10,17 @@ Endpoints
 ``POST /v1/invites/{token}/accept``  Create a user account and return a JWT.
 """
 
+# Future imports (must occur at the beginning of the file):
 from __future__ import annotations
 
+# Standard library imports:
 from datetime import UTC, datetime
 
+# Third party imports:
 import bcrypt
 from fastapi import APIRouter, Depends, HTTPException
 
+# Local imports:
 from cantica.api.deps import StoreDep, get_jwt_secret
 from cantica.core.jwt_utils import create_jwt
 from cantica.schemas.admin import InviteAccept, InviteValidation
@@ -46,6 +50,7 @@ def accept_invite(
     jwt_secret: str = Depends(get_jwt_secret),
 ) -> SessionResponse:
     """Validate the invite, create the user account, and return a JWT session."""
+    # Local imports:
     from cantica.config import get_settings  # noqa: PLC0415
 
     invite = store.get_invite_by_token(token)

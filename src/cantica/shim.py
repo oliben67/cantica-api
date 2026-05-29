@@ -763,7 +763,7 @@ class _FederateProtocol:
         import httpx  # noqa: PLC0415
 
         # Local imports:
-        from cantica.core.federation_crypto import encrypt_for, verify_signature  # noqa: PLC0415
+        from cantica.core.federation_crypto import encrypt_for  # noqa: PLC0415
 
         feds = await self.list_federations()
         for fed in feds:

@@ -157,8 +157,10 @@ def test_revoke_certificate_not_found(client: TestClient) -> None:
 
 def test_update_namespace_store_error_returns_404(client: TestClient) -> None:
     """update_namespace raising KeyError maps to 404 (lines 136-137 in namespaces.py)."""
+    # Standard library imports:
     from unittest.mock import patch  # noqa: PLC0415
 
+    # Local imports:
     from cantica.services.version_store import VersionStore  # noqa: PLC0415
 
     client.post("/v1/namespaces", json={"name": "acme"})

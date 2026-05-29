@@ -6,8 +6,10 @@ link is still returned to the admin in the API response so they can share it
 manually).
 """
 
+# Future imports (must occur at the beginning of the file):
 from __future__ import annotations
 
+# Standard library imports:
 import logging
 import smtplib
 from email.mime.multipart import MIMEMultipart

@@ -50,6 +50,7 @@ async def login(
     jwt_secret: str = Depends(get_jwt_secret),
 ) -> SessionResponse:
     """Authenticate and return a JWT bearer token."""
+    # Local imports:
     from cantica.config import get_settings  # noqa: PLC0415
 
     settings = get_settings()

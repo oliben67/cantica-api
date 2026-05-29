@@ -32,6 +32,7 @@ from cantica.core.auth_config import AuthConfig
 from cantica.models.user import Role, User
 
 if TYPE_CHECKING:
+    # Local imports:
     from cantica.services.version_store import VersionStore
 
 _SETUP_BANNER = """

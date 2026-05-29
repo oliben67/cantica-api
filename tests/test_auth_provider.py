@@ -167,6 +167,7 @@ async def test_get_anonymous_user_default(provider: LocalAuthProvider):
 
 
 async def test_get_anonymous_user_empty_roles():
+    # Local imports:
     from cantica.core.auth_config import AnonymousConfig  # noqa: PLC0415
 
     cfg = AuthConfig(anonymous=AnonymousConfig(roles=[]))

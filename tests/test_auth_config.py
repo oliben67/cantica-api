@@ -11,9 +11,8 @@ import pytest
 
 # Local imports:
 from cantica.core.auth_config import AuthConfig
-from cantica.core.federation_policy import FederationPolicy, _key_fingerprint
 from cantica.core.federation_crypto import generate_key_pair
-
+from cantica.core.federation_policy import FederationPolicy, _key_fingerprint
 
 # ── AuthConfig ────────────────────────────────────────────────────────────────
 

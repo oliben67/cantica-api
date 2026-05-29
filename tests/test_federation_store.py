@@ -13,7 +13,6 @@ import pytest
 from cantica.core.federation_crypto import generate_key_pair
 from cantica.services.version_store import VersionStore
 
-
 # ── Fixtures ──────────────────────────────────────────────────────────────────
 
 
@@ -42,6 +41,7 @@ def test_get_or_create_identity_persists_key(store: VersionStore, tmp_path: Path
 
 def test_get_or_create_identity_key_file_mode(store: VersionStore) -> None:
     store.get_or_create_identity()
+    # Standard library imports:
     import stat
 
     mode = store._federation_key_path().stat().st_mode
@@ -267,10 +267,12 @@ def test_get_member_by_key_skips_corrupted_rows(store: VersionStore) -> None:
     store.get_or_create_identity()
     fed, _ = store.create_federation("my-fed")
     # Manually insert a row with garbage encrypted data
+    # Local imports:
     from cantica.orm.tables import FederationMemberOrm  # noqa: PLC0415
     from cantica.services.version_store import _iso, _utcnow  # noqa: PLC0415
 
     now = _iso(_utcnow())
+    # Standard library imports:
     import uuid  # noqa: PLC0415
 
     store.session.execute(

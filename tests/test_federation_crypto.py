@@ -18,7 +18,6 @@ from cantica.core.federation_crypto import (
     verify_signature,
 )
 
-
 # ── Fixtures ──────────────────────────────────────────────────────────────────
 
 

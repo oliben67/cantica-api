@@ -103,8 +103,10 @@ def test_upload_with_tags_and_description(client: TestClient, store: VersionStor
 
 def test_upload_requires_write_role():
     """Anonymous (readonly) user gets 403."""
+    # Standard library imports:
     from pathlib import Path  # noqa: PLC0415
 
+    # Third party imports:
     import pytest  # noqa: PLC0415
 
     app = create_app()

@@ -8,7 +8,6 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from fastapi.testclient import TestClient
 
-
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
 
@@ -96,6 +95,7 @@ def test_remove_peer_not_found(client: TestClient) -> None:
 
 def _mock_response(prompts: list[dict]):
     """Return a mock httpx Response-like object."""
+    # Third party imports:
     import httpx
 
     return httpx.Response(200, json=prompts)
@@ -156,6 +156,7 @@ def test_federated_list_returns_peer_results(client: TestClient, peer: dict) -> 
 
 
 def test_federated_search_peer_error_is_captured(client: TestClient, peer: dict) -> None:
+    # Third party imports:
     import httpx
 
     mock_c = _mock_http_client_error(httpx.ConnectError("refused"))
@@ -168,6 +169,7 @@ def test_federated_search_peer_error_is_captured(client: TestClient, peer: dict)
 
 
 def test_federated_list_peer_error_is_captured(client: TestClient, peer: dict) -> None:
+    # Third party imports:
     import httpx
 
     mock_c = _mock_http_client_error(httpx.ConnectError("refused"))

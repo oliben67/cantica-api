@@ -1009,6 +1009,7 @@ async def test_federate_list_members(shim: CanticaShim) -> None:
 
 
 async def test_federate_list_members_all(shim: CanticaShim) -> None:
+    # Local imports:
     from cantica.core.federation_crypto import generate_key_pair  # noqa: PLC0415
 
     fed, _ = await shim.federate.create_federation("my-fed")
@@ -1030,6 +1031,7 @@ async def test_federate_sync_all_skips_founder(shim: CanticaShim) -> None:
     """sync_all skips federations where is_founder=True."""
     await shim.federate.create_federation("founder-fed")
     # Should complete without making any HTTP calls
+    # Standard library imports:
     from unittest.mock import patch  # noqa: PLC0415
 
     with patch("httpx.AsyncClient") as mock_cls:
@@ -1039,9 +1041,12 @@ async def test_federate_sync_all_skips_founder(shim: CanticaShim) -> None:
 
 async def test_federate_sync_all_non_founder_no_founder_url(shim: CanticaShim) -> None:
     """sync_all skips non-founder federations with no known founder URL."""
+    # Third party imports:
+    from sqlalchemy import update  # noqa: PLC0415
+
+    # Local imports:
     from cantica.core.federation_crypto import encrypt_field, generate_key_pair  # noqa: PLC0415
     from cantica.orm.tables import FederationOrm  # noqa: PLC0415
-    from sqlalchemy import update  # noqa: PLC0415
 
     fed, _ = await shim.federate.create_federation("non-founder-fed")
     pub2, _priv2 = generate_key_pair()
@@ -1053,6 +1058,7 @@ async def test_federate_sync_all_non_founder_no_founder_url(shim: CanticaShim) -
     )
     shim.store.session.commit()
     # No founder member with a URL → should skip silently
+    # Standard library imports:
     from unittest.mock import patch  # noqa: PLC0415
 
     with patch("httpx.AsyncClient") as mock_cls:
@@ -1062,11 +1068,15 @@ async def test_federate_sync_all_non_founder_no_founder_url(shim: CanticaShim) -
 
 async def test_federate_sync_all_non_founder_posts_to_founder(shim: CanticaShim) -> None:
     """sync_all sends a POST to the founder sync URL for non-founder federations."""
+    # Standard library imports:
     from unittest.mock import AsyncMock, patch  # noqa: PLC0415
 
+    # Third party imports:
+    from sqlalchemy import update  # noqa: PLC0415
+
+    # Local imports:
     from cantica.core.federation_crypto import encrypt_field, generate_key_pair  # noqa: PLC0415
     from cantica.orm.tables import FederationOrm  # noqa: PLC0415
-    from sqlalchemy import update  # noqa: PLC0415
 
     fed, _ = await shim.federate.create_federation("non-founder-fed")
     pub2, priv2 = generate_key_pair()
@@ -1094,11 +1104,15 @@ async def test_federate_sync_all_non_founder_posts_to_founder(shim: CanticaShim)
 
 async def test_federate_sync_all_suppresses_exceptions(shim: CanticaShim) -> None:
     """sync_all never raises even when a sync attempt fails."""
+    # Standard library imports:
     from unittest.mock import AsyncMock, patch  # noqa: PLC0415
 
+    # Third party imports:
+    from sqlalchemy import update  # noqa: PLC0415
+
+    # Local imports:
     from cantica.core.federation_crypto import encrypt_field, generate_key_pair  # noqa: PLC0415
     from cantica.orm.tables import FederationOrm  # noqa: PLC0415
-    from sqlalchemy import update  # noqa: PLC0415
 
     fed, _ = await shim.federate.create_federation("bad-fed")
     pub2, priv2 = generate_key_pair()
@@ -1111,6 +1125,7 @@ async def test_federate_sync_all_suppresses_exceptions(shim: CanticaShim) -> Non
     shim.store.session.commit()
     shim.store.add_federation_member(fed.id, pub2, "http://founder.example/v1/federate")
 
+    # Third party imports:
     import httpx  # noqa: PLC0415
 
     mock_client = AsyncMock()
@@ -1132,6 +1147,7 @@ async def test_sync_loop_calls_sync_all(shim: CanticaShim) -> None:
     import asyncio
     from unittest.mock import patch  # noqa: PLC0415
 
+    # Local imports:
     from cantica.shim import _FederateProtocol, _sync_loop  # noqa: PLC0415
 
     call_count = 0
@@ -1162,6 +1178,7 @@ async def test_sync_loop_suppresses_sync_all_exception(shim: CanticaShim) -> Non
     import asyncio
     from unittest.mock import patch  # noqa: PLC0415
 
+    # Local imports:
     from cantica.shim import _FederateProtocol, _sync_loop  # noqa: PLC0415
 
     call_count = 0
@@ -1185,6 +1202,7 @@ async def test_sync_loop_suppresses_sync_all_exception(shim: CanticaShim) -> Non
 
 async def test_lifespan_with_zero_sync_interval(tmp_path: Path) -> None:
     """lifespan() with federation_sync_interval=0 skips creating the sync task."""
+    # Local imports:
     from cantica.config import Settings  # noqa: PLC0415
 
     settings = Settings(vault_path=tmp_path, federation_sync_interval=0)

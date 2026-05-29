@@ -140,6 +140,7 @@ def test_get_jwt_secret_derives_from_key_file(tmp_path: Path, monkeypatch) -> No
     s.close()
     get_store.cache_clear()
 
+    # Local imports:
     from cantica.api.deps import get_jwt_secret
 
     secret = get_jwt_secret()

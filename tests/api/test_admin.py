@@ -40,6 +40,7 @@ def client(vault: Path, store: VersionStore) -> TestClient:
     cfg = AuthConfig()
     provider = LocalAuthProvider(store, cfg)
 
+    # Local imports:
     from cantica.api.deps import get_current_user  # noqa: PLC0415
 
     app.dependency_overrides[get_settings] = lambda: settings
@@ -120,6 +121,7 @@ def test_update_user_roles(client: TestClient):
 
 
 def test_update_user_password(client: TestClient, store: VersionStore):
+    # Third party imports:
     import bcrypt  # noqa: PLC0415
 
     created = client.post("/v1/admin/users", json={"username": "gina", "password": "old"}).json()
@@ -161,6 +163,7 @@ def test_delete_user_not_found(client: TestClient):
 
 def test_admin_endpoint_requires_admin_role():
     """Explicitly test that a non-admin user gets 403."""
+    # Local imports:
     from cantica.api.deps import get_current_user  # noqa: PLC0415
 
     app = create_app()

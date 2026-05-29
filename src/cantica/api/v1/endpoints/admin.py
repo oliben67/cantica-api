@@ -21,10 +21,16 @@ import bcrypt
 from fastapi import APIRouter, HTTPException, Request
 
 # Local imports:
-from cantica.api.deps import AdminUserDep, StoreDep, UserDep
+from cantica.api.deps import AdminUserDep, StoreDep
 from cantica.config import get_settings
 from cantica.core.mailer import send_invite
-from cantica.schemas.admin import InviteCreate, InviteResponse, UserAdminResponse, UserCreate, UserUpdate
+from cantica.schemas.admin import (
+    InviteCreate,
+    InviteResponse,
+    UserAdminResponse,
+    UserCreate,
+    UserUpdate,
+)
 
 router = APIRouter(prefix="/admin", tags=["admin"])
 

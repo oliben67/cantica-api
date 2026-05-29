@@ -53,7 +53,6 @@ from cantica.api.deps import StoreDep, UserDep
 from cantica.core.federation_crypto import (
     decrypt_from,
     encrypt_for,
-    sign_message,
     verify_signature,
 )
 from cantica.schemas.federate import (
@@ -205,6 +204,7 @@ def eject_member(
             signature=sig,
         )
         try:
+            # Standard library imports:
             import asyncio  # noqa: PLC0415
 
             asyncio.get_event_loop().run_until_complete(

@@ -79,10 +79,12 @@ def get_jwt_secret() -> str:
     store = get_store()
     key_path = store._federation_key_path()
     if key_path.exists():
+        # Standard library imports:
         import hashlib  # noqa: PLC0415
 
         return hashlib.sha256(key_path.read_bytes()).hexdigest()
     # Fallback: deterministic from vault path (not secure for production)
+    # Standard library imports:
     import hashlib  # noqa: PLC0415
 
     return hashlib.sha256(str(settings.vault_path).encode()).hexdigest()

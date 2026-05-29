@@ -10,7 +10,6 @@ import pytest
 from cantica.core.jwt_utils import create_jwt, verify_jwt
 from cantica.models.user import Role, User
 
-
 # ── User model ────────────────────────────────────────────────────────────────
 
 
@@ -73,8 +72,10 @@ def test_verify_jwt_invalid_token():
 
 def test_verify_jwt_expired(monkeypatch):
     """Expired token should return None."""
+    # Standard library imports:
     from datetime import UTC, datetime, timedelta  # noqa: PLC0415
 
+    # Third party imports:
     import jwt  # noqa: PLC0415
 
     user = User(username="bob", roles=[Role.user])

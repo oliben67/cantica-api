@@ -35,9 +35,7 @@ from fastapi import APIRouter
 from cantica.api.v1.endpoints import (
     admin,
     auth,
-    upload,
     branches,
-    invites,
     collections,
     comments,
     diff,
@@ -45,6 +43,7 @@ from cantica.api.v1.endpoints import (
     federation,
     forks,
     hooks,
+    invites,
     namespaces,
     prompts,
     push,
@@ -53,6 +52,7 @@ from cantica.api.v1.endpoints import (
     sessions,
     stars,
     tags,
+    upload,
     versions,
 )
 

@@ -32,8 +32,8 @@ from pathlib import Path
 
 # Third party imports:
 from sqlalchemy import Engine, create_engine, event, text
-from sqlalchemy.orm import Session
 from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.orm import Session
 
 # Local imports:
 from cantica.core.certificates import generate_instance_secret

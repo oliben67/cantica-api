@@ -1311,6 +1311,7 @@ class VersionStore:
         roles: list[str] | None = None,
     ) -> User:
         """Create a new user and return a ``User`` model."""
+        # Standard library imports:
         import json as _json  # noqa: PLC0415
 
         user_id = str(uuid.uuid4())
@@ -1364,6 +1365,7 @@ class VersionStore:
         is_active: bool | None = None,
     ) -> User | None:
         """Partial-update user fields; return updated User or None if not found."""
+        # Standard library imports:
         import json as _json  # noqa: PLC0415
 
         row = self.get_user_by_id(user_id)
@@ -1390,6 +1392,7 @@ class VersionStore:
 
     def orm_to_user(self, row: UserOrm) -> User:
         """Convert a ``UserOrm`` row to a ``User`` model."""
+        # Standard library imports:
         import json as _json  # noqa: PLC0415
 
         roles = [Role(r) for r in _json.loads(row.roles_json or '["user"]')]
@@ -1413,9 +1416,11 @@ class VersionStore:
         expires_in_hours: int = 168,
     ) -> dict:
         """Create a one-time invite token; return the invite record as a dict."""
+        # Standard library imports:
         import secrets  # noqa: PLC0415
         from datetime import timedelta  # noqa: PLC0415
 
+        # Local imports:
         from cantica.orm.tables import UserInviteOrm  # noqa: PLC0415
 
         invite_id = str(uuid.uuid4())
@@ -1444,6 +1449,7 @@ class VersionStore:
 
     def get_invite_by_token(self, token: str) -> dict | None:
         """Return invite record dict for *token*, or None if not found."""
+        # Local imports:
         from cantica.orm.tables import UserInviteOrm  # noqa: PLC0415
 
         row = self.session.execute(
@@ -1464,6 +1470,7 @@ class VersionStore:
 
     def use_invite(self, token: str, user_id: str) -> bool:
         """Mark an invite as used; return False if not found or already used."""
+        # Local imports:
         from cantica.orm.tables import UserInviteOrm  # noqa: PLC0415
 
         row = self.session.execute(
@@ -1481,6 +1488,7 @@ class VersionStore:
 
     def list_invites(self) -> list[dict]:
         """Return all invites ordered newest first."""
+        # Local imports:
         from cantica.orm.tables import UserInviteOrm  # noqa: PLC0415
 
         rows = (
