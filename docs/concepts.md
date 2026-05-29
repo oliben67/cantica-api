@@ -697,7 +697,7 @@ cantica push myorg/secret --remote https://cantica.example.com --certificate <to
 cantica pull myorg/secret --remote https://cantica.example.com --certificate <token>
 ```
 
-### Lock files (songbook integration)
+### Lock files
 
 The `lock` and `install` commands support **pinned deployments** — resolving `cantica://` URIs to exact SHAs and storing them in a lock file:
 
@@ -730,7 +730,7 @@ namespace/name@ref
 | `namespace/name@branchname` | `osteck/architect@experimental` | HEAD of a named branch |
 | `namespace/name@tagname` | `osteck/architect@v1.0` | A stable tagged release |
 | `namespace/name@sha` | `osteck/architect@a3f1d2e4` | An exact commit (full or abbreviated SHA) |
-| `cantica://namespace/name@ref` | `cantica://osteck/architect@v1.0` | Full URI (used by songbook and the `resolve` endpoint) |
+| `cantica://namespace/name@ref` | `cantica://osteck/architect@v1.0` | Full URI (used by external tools and the `resolve` endpoint) |
 | `cantica://host/namespace/name@ref` | `cantica://api.example.com/osteck/arch@latest` | Remote URI (federated resolution) |
 
 The `cantica://` scheme is designed for use in agent configs and lock files where the address must be unambiguous even when not inside a Cantica-aware tool.

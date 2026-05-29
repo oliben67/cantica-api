@@ -129,7 +129,7 @@ A **Collection** is a named, mutable set of prompts (`osteck/my-toolkit`). Colle
 
 ### URI resolution
 
-Prompts are addressable by `cantica://` URIs — the scheme used by songbook agents and the lock-file workflow:
+Prompts are addressable by `cantica://` URIs — the scheme used by external tools, agents, and the lock-file workflow:
 
 ```
 cantica://osteck/code-reviewer@v1.3

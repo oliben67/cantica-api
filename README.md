@@ -276,7 +276,7 @@ namespace/name@v1.0           → tagged release
 namespace/name@abc1234        → pinned to SHA prefix
 namespace/name@experimental   → named branch head
 
-cantica://namespace/name@ref  → full URI (for songbook integration)
+cantica://namespace/name@ref  → full URI (for external tool and agent integration)
 ```
 
 ---
@@ -307,6 +307,6 @@ task --list         # all available tasks
 | 3 — Search | Full-text (FTS5), tag/model/visibility filters | ✅ Done |
 | 4 — Community | Stars, comments, collections | ✅ Done |
 | 5 — Web UI | React SPA (Vite + Tailwind + shadcn/ui) | ✅ Done |
-| 6 — songbook Integration | `cantica://` URI resolution, lock file | ✅ Done |
+| 6 — External Integrations | `cantica://` URI resolution, lock file | ✅ Done |
 | 7 — Cloud | PostgreSQL, production Docker, federation webhooks | ✅ Done |
 | 8 — Access Control | Proprietary namespaces, access certificates, AES-256-GCM encoding | ✅ Done |
