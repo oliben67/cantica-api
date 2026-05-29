@@ -242,17 +242,17 @@ tasks:
   # ── Frontend ─────────────────────────────────────────────────────────────
   ui:dev:
     desc: Start the Vite dev server (proxies /v1 to FastAPI at :8042)
-    dir: ../cantica-frontend
+    dir: ../cantica-web
     cmd: npm run dev
 
   ui:build:
-    desc: Build the frontend for production (outputs to cantica-frontend/dist/)
-    dir: ../cantica-frontend
+    desc: Build the frontend for production (outputs to cantica-web/dist/)
+    dir: ../cantica-web
     cmd: npm run build
 
   ui:install:
     desc: Install frontend npm dependencies
-    dir: ../cantica-frontend
+    dir: ../cantica-web
     cmd: npm install
 
   clean:all:

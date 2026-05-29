@@ -20,6 +20,7 @@ dependencies = [
     "tomli-w>=1.2.0",
     "typer>=0.25.1",
     "uvicorn[standard]>=0.47.0",
+    "fastmcp>=2.0",
 ]
 
 [project.scripts]

@@ -67,6 +67,9 @@ class Settings(BaseSettings):
     # Federation permissions
     federation_policy_path: Path | None = None  # path to federation-policy.yaml
 
+    # MCP server — API key used by commit_prompt when auth_enabled=True
+    mcp_api_key: str = ""
+
     # Base URL used in invite emails and QR codes (auto-detected from request if empty)
     base_url: str = ""
 

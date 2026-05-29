@@ -9,6 +9,7 @@ business logic of its own.
 Commands
 --------
 serve           Start the Uvicorn development server.
+mcp             Start the Cantica MCP server on stdio for use with AI agents.
 
 new             Create a new prompt in the local vault.
 commit          Save a new version; content from ``--file`` or stdin.
@@ -95,6 +96,15 @@ def serve(
 ) -> None:
     """Start the Cantica API server."""
     uvicorn.run("cantica.main:app", host=host, port=port, reload=reload)
+
+
+@app.command(name="mcp")
+def mcp_serve() -> None:
+    """Start the Cantica MCP server on stdio for use with AI agents."""
+    # Local imports:
+    from cantica.mcp import server as _mcp_server  # noqa: PLC0415
+
+    _mcp_server.mcp.run("stdio")
 
 
 # --------------------------------------------------------------------------- #

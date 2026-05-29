@@ -5,6 +5,8 @@ FastAPI application factory for the Cantica API server.
 
 - Mounts the v1 router under ``/v1`` (all prompt, version, tag, branch, fork,
   star, comment, collection, diff, render, resolve, hook, and auth endpoints).
+- Mounts the MCP server under ``/mcp`` (HTTP/streamable-HTTP transport) so AI
+  agents can discover and use prompts without the REST layer.
 - Adds CORS middleware with open origins (``*``) suitable for local and
   community use; tighten in production via a proxy.
 - Registers two meta endpoints:
@@ -22,8 +24,8 @@ Use ``cantica serve`` (CLI) or point a WSGI runner directly at this object.
 from __future__ import annotations
 
 # Standard library imports:
+from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
-from typing import AsyncGenerator
 
 # Third party imports:
 from fastapi import FastAPI
@@ -35,8 +37,9 @@ from cantica.core.logger import setup_logging
 
 
 @asynccontextmanager
-async def _lifespan(_app: FastAPI) -> AsyncGenerator[None, None]:
+async def _lifespan(_app: FastAPI) -> AsyncGenerator[None]:
     """Run bootstrap tasks (user seeding, first-install key) then serve."""
+    # Local imports:
     from cantica.api.deps import get_auth_config, get_store  # noqa: PLC0415
     from cantica.config import get_settings  # noqa: PLC0415
     from cantica.core.auth_provider import LocalAuthProvider  # noqa: PLC0415
@@ -65,6 +68,11 @@ def create_app() -> FastAPI:
         allow_headers=["*"],
     )
     app.include_router(v1_router, prefix="/v1")
+
+    # Local imports:
+    from cantica.mcp.server import mcp as _mcp  # noqa: PLC0415
+
+    app.mount("/mcp", _mcp.http_app(path="/"))
 
     @app.get("/health", tags=["meta"])
     def health() -> dict[str, str]:
