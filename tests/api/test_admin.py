@@ -35,7 +35,6 @@ def store(vault: Path) -> VersionStore:
 @pytest.fixture
 def client(vault: Path, store: VersionStore) -> TestClient:
     app = create_app()
-    admin_user = User(id="admin-1", username="admin", roles=[Role.admin])
     settings = Settings(vault_path=vault, auth_enabled=False)
     cfg = AuthConfig()
     provider = LocalAuthProvider(store, cfg)
@@ -73,7 +72,15 @@ def test_list_users_after_create(client: TestClient):
 
 
 def test_create_user_success(client: TestClient):
-    r = client.post("/v1/admin/users", json={"username": "bob", "email": "b@example.com", "password": "pass123", "roles": ["admin"]})
+    r = client.post(
+        "/v1/admin/users",
+        json={
+            "username": "bob",
+            "email": "b@example.com",
+            "password": "pass123",
+            "roles": ["admin"],
+        },
+    )
     assert r.status_code == 201
     data = r.json()
     assert data["username"] == "bob"
@@ -114,7 +121,9 @@ def test_update_user_email(client: TestClient):
 
 
 def test_update_user_roles(client: TestClient):
-    created = client.post("/v1/admin/users", json={"username": "frank", "password": "p", "roles": ["user"]}).json()
+    created = client.post(
+        "/v1/admin/users", json={"username": "frank", "password": "p", "roles": ["user"]}
+    ).json()
     r = client.patch(f"/v1/admin/users/{created['id']}", json={"roles": ["admin"]})
     assert r.status_code == 200
     assert "admin" in r.json()["roles"]

@@ -60,7 +60,9 @@ async def upload_prompt(
     elif content is not None:
         resolved_content = content
     else:
-        raise HTTPException(status_code=422, detail="Either 'content' or 'content_file' is required")
+        raise HTTPException(
+            status_code=422, detail="Either 'content' or 'content_file' is required"
+        )
 
     # Auto-create namespace and prompt if missing
     if store.get_namespace(namespace) is None:
@@ -70,9 +72,7 @@ async def upload_prompt(
         tag_list = [t.strip() for t in tags.split(",") if t.strip()]
         prompt = store.create_prompt(namespace, name, description, tags=tag_list)
 
-    version = store.commit(
-        prompt.id, resolved_content, message, user.username, branch=branch
-    )
+    version = store.commit(prompt.id, resolved_content, message, user.username, branch=branch)
     return JSONResponse(
         status_code=201,
         content={

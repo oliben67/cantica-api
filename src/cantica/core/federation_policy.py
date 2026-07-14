@@ -51,8 +51,8 @@ from pydantic import BaseModel, Field
 class FederationRuleEntry(BaseModel):
     """A permission rule for a specific federation or member."""
 
-    id: str | None = None           # federation UUID (for federation-level rules)
-    name: str | None = None         # informational
+    id: str | None = None  # federation UUID (for federation-level rules)
+    name: str | None = None  # informational
     fingerprint: str | None = None  # sha256:<hex> public-key fingerprint (member rules)
     allow: list[str] = Field(default_factory=list)
 

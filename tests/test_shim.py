@@ -854,10 +854,21 @@ async def test_federation_search_returns_peer_results(shim: CanticaShim) -> None
 
     await shim.federation.add_peer("acme", "http://acme.example", "key1")
     fake_prompt = {
-        "id": "abc", "namespace": "acme", "name": "greet", "description": "",
-        "tags": [], "model_hints": [], "license": "MIT", "visibility": "public",
-        "variables": [], "star_count": 0, "fork_count": 0, "default_branch": "main",
-        "source": None, "created_at": "2026-01-01T00:00:00", "updated_at": "2026-01-01T00:00:00",
+        "id": "abc",
+        "namespace": "acme",
+        "name": "greet",
+        "description": "",
+        "tags": [],
+        "model_hints": [],
+        "license": "MIT",
+        "visibility": "public",
+        "variables": [],
+        "star_count": 0,
+        "fork_count": 0,
+        "default_branch": "main",
+        "source": None,
+        "created_at": "2026-01-01T00:00:00",
+        "updated_at": "2026-01-01T00:00:00",
         "slug": "acme/greet",
     }
     mock_resp = MagicMock()
@@ -881,10 +892,21 @@ async def test_federation_list_prompts_returns_peer_results(shim: CanticaShim) -
 
     await shim.federation.add_peer("acme", "http://acme.example")
     fake_prompt = {
-        "id": "xyz", "namespace": "acme", "name": "helper", "description": "",
-        "tags": [], "model_hints": [], "license": "MIT", "visibility": "public",
-        "variables": [], "star_count": 0, "fork_count": 0, "default_branch": "main",
-        "source": None, "created_at": "2026-01-01T00:00:00", "updated_at": "2026-01-01T00:00:00",
+        "id": "xyz",
+        "namespace": "acme",
+        "name": "helper",
+        "description": "",
+        "tags": [],
+        "model_hints": [],
+        "license": "MIT",
+        "visibility": "public",
+        "variables": [],
+        "star_count": 0,
+        "fork_count": 0,
+        "default_branch": "main",
+        "source": None,
+        "created_at": "2026-01-01T00:00:00",
+        "updated_at": "2026-01-01T00:00:00",
         "slug": "acme/helper",
     }
     mock_resp = MagicMock()

@@ -51,12 +51,15 @@ def client(vault: Path, store: VersionStore, write_user: User) -> TestClient:
 
 
 def test_upload_creates_new_prompt(client: TestClient, store: VersionStore):
-    r = client.post("/v1/upload", data={
-        "namespace": "acme",
-        "name": "greeter",
-        "content": "Hello {{ name }}",
-        "message": "Initial upload",
-    })
+    r = client.post(
+        "/v1/upload",
+        data={
+            "namespace": "acme",
+            "name": "greeter",
+            "content": "Hello {{ name }}",
+            "message": "Initial upload",
+        },
+    )
     assert r.status_code == 201
     data = r.json()
     assert data["author"] == "uploader"
@@ -73,10 +76,14 @@ def test_upload_existing_prompt_adds_version(client: TestClient, store: VersionS
 
 
 def test_upload_via_file(client: TestClient):
-    r = client.post("/v1/upload", data={
-        "namespace": "acme",
-        "name": "from-file",
-    }, files={"content_file": ("prompt.txt", BytesIO(b"File content here"), "text/plain")})
+    r = client.post(
+        "/v1/upload",
+        data={
+            "namespace": "acme",
+            "name": "from-file",
+        },
+        files={"content_file": ("prompt.txt", BytesIO(b"File content here"), "text/plain")},
+    )
     assert r.status_code == 201
     assert "sha" in r.json()
 
@@ -87,13 +94,16 @@ def test_upload_no_content_returns_422(client: TestClient):
 
 
 def test_upload_with_tags_and_description(client: TestClient, store: VersionStore):
-    r = client.post("/v1/upload", data={
-        "namespace": "acme",
-        "name": "tagged",
-        "content": "prompt body",
-        "description": "A tagged prompt",
-        "tags": "ai,gpt,llm",
-    })
+    r = client.post(
+        "/v1/upload",
+        data={
+            "namespace": "acme",
+            "name": "tagged",
+            "content": "prompt body",
+            "description": "A tagged prompt",
+            "tags": "ai,gpt,llm",
+        },
+    )
     assert r.status_code == 201
     prompt = store.get_prompt("acme", "tagged")
     assert prompt is not None
@@ -113,7 +123,12 @@ def test_upload_requires_write_role():
     anon = User(id="anon", username="anon", roles=[Role.readonly])
     app.dependency_overrides[get_current_user] = lambda: anon
     with TestClient(app) as c:
-        r = c.post("/v1/upload", data={
-            "namespace": "x", "name": "y", "content": "z",
-        })
+        r = c.post(
+            "/v1/upload",
+            data={
+                "namespace": "x",
+                "name": "y",
+                "content": "z",
+            },
+        )
     assert r.status_code == 403

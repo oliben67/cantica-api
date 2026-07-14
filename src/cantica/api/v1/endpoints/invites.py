@@ -53,6 +53,7 @@ def accept_invite(
     # Local imports:
     from cantica.config import get_settings  # noqa: PLC0415
 
+    settings = get_settings()
     invite = store.get_invite_by_token(token)
     if invite is None or invite["used_at"] is not None:
         raise HTTPException(status_code=400, detail="Invalid or already-used invite")
@@ -67,7 +68,16 @@ def accept_invite(
     user = store.create_user(username=body.username, email=email, password_hash=pw_hash)
     store.use_invite(token, user.id)
 
-    settings = get_settings()
+    # Spec REGISTRATION C.2.a: when auto-activation is off, the account starts
+    # disabled + flagged 'newbie' for admin review (activation screen).
+    if not settings.auto_activate_users:
+        # Local imports:
+        from cantica.core.auth_gate import FLAG_NEWBIE  # noqa: PLC0415
+
+        store.update_user(user.id, is_active=False)
+        store.add_user_flag(user.id, FLAG_NEWBIE, comment="awaiting admin activation")
+        user.is_active = False
+
     jwt_token = create_jwt(user, jwt_secret, expire_minutes=settings.jwt_expire_minutes)
     return SessionResponse(
         access_token=jwt_token,

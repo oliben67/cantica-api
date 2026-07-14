@@ -49,7 +49,9 @@ def client(vault: Path, store: VersionStore) -> TestClient:
 def _create_user(store: VersionStore, username: str = "alice", password: str = "secret") -> str:
     """Insert a user and return the plain-text password."""
     pw_hash = bcrypt.hashpw(password.encode(), bcrypt.gensalt()).decode()
-    store.create_user(username, email=f"{username}@example.com", password_hash=pw_hash, roles=["user"])
+    store.create_user(
+        username, email=f"{username}@example.com", password_hash=pw_hash, roles=["user"]
+    )
     return password
 
 

@@ -162,9 +162,7 @@ async def test_render_prompt_static(mcp_env: VersionStore) -> None:
     prompt = mcp_env.create_prompt("acme", "static")
     mcp_env.commit(prompt.id, "Hello world.", "Initial", "alice")
     async with Client(mcp) as client:
-        result = await client.call_tool(
-            "render_prompt", {"namespace": "acme", "name": "static"}
-        )
+        result = await client.call_tool("render_prompt", {"namespace": "acme", "name": "static"})
     assert result.data["content"] == "Hello world."
 
 
@@ -185,18 +183,14 @@ async def test_render_prompt_uses_schema_defaults(mcp_env: VersionStore) -> None
     schema = [VariableSchema(name="lang", type="string", default="Python")]
     mcp_env.commit(prompt.id, "Speak {{lang}}.", "Initial", "alice", variables=schema)
     async with Client(mcp) as client:
-        result = await client.call_tool(
-            "render_prompt", {"namespace": "acme", "name": "defaulted"}
-        )
+        result = await client.call_tool("render_prompt", {"namespace": "acme", "name": "defaulted"})
     assert result.data["content"] == "Speak Python."
 
 
 async def test_render_prompt_not_found(mcp_env: VersionStore) -> None:
     async with Client(mcp) as client:
         with pytest.raises(ToolError, match="not found"):
-            await client.call_tool(
-                "render_prompt", {"namespace": "nobody", "name": "nothing"}
-            )
+            await client.call_tool("render_prompt", {"namespace": "nobody", "name": "nothing"})
 
 
 # --------------------------------------------------------------------------- #
@@ -335,9 +329,7 @@ async def test_prompt_latest_resource(seeded: dict) -> None:
 
 async def test_prompt_ref_resource_by_tag(seeded: dict) -> None:
     async with Client(mcp) as client:
-        contents = await client.read_resource(
-            "cantica://prompts/acme/chat-system/versions/v1.0"
-        )
+        contents = await client.read_resource("cantica://prompts/acme/chat-system/versions/v1.0")
     assert contents[0].text == "You are a helpful assistant."
 
 

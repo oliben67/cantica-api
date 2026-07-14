@@ -30,12 +30,12 @@ class FederateRequest(BaseModel):
     """Inbound federation protocol message posted to ``/v1/federate`` by another server."""
 
     federation_id: str
-    public_key: str       # sender's RSA public key (PEM)
-    federate_url: str     # sender's /v1/federate endpoint URL
-    is_accepted: bool     # True = join/notify, False = leave/eject
-    action: str           # "join" | "leave" | "notify" | "eject"
-    target_key: str | None = None   # for notify/eject: affected member's public key
-    signature: str        # RSA-PSS sig over canonicalised request (all fields except this)
+    public_key: str  # sender's RSA public key (PEM)
+    federate_url: str  # sender's /v1/federate endpoint URL
+    is_accepted: bool  # True = join/notify, False = leave/eject
+    action: str  # "join" | "leave" | "notify" | "eject"
+    target_key: str | None = None  # for notify/eject: affected member's public key
+    signature: str  # RSA-PSS sig over canonicalised request (all fields except this)
 
 
 class FederateResponse(BaseModel):
@@ -50,16 +50,16 @@ class SyncRequest(BaseModel):
     """Non-founder sends hybrid-encrypted members table to the founding server."""
 
     federation_id: str
-    public_key: str       # sender's public key (for signature verification)
+    public_key: str  # sender's public key (for signature verification)
     encrypted_table: str  # hybrid-encrypted JSON list of member records
-    signature: str        # RSA-PSS sig over *encrypted_table* bytes
+    signature: str  # RSA-PSS sig over *encrypted_table* bytes
 
 
 class SyncResponse(BaseModel):
     """Founder returns canonical members table encrypted with the sender's public key."""
 
     encrypted_table: str  # canonical table re-encrypted with sender's public key
-    signature: str        # founder's RSA-PSS sig over the plaintext canonical table
+    signature: str  # founder's RSA-PSS sig over the plaintext canonical table
 
 
 class FederationCreate(BaseModel):
@@ -101,4 +101,4 @@ class ServerIdentityResponse(BaseModel):
 class JoinRequest(BaseModel):
     """Body for ``POST /v1/federations/{id}/join`` — outbound join request to founding server."""
 
-    founding_url: str   # URL of the founding server's /v1/federate endpoint
+    founding_url: str  # URL of the founding server's /v1/federate endpoint

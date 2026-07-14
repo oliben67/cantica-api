@@ -1,4 +1,4 @@
-h1:2lSvzGAgTk5y379ilndL4gmDBN/sd0uUbTch5CE0LbY=
+h1:166CuznuMYToXCIeuo2OK0ObvyzW2e/nHyK/BQ9BtPY=
 20260523203331_initial_schema.sql h1:w4vRsG6/VqJbWku6Vuu1iOV+e6Q1pu9kQaFiDoYPT80=
 20260524092718_add_community_tables.sql h1:lZ8MpddMQ7odcwICjJgZ5I9l1/J/TDnkzrpBWWIow50=
 20260524120000_add_webhooks.sql h1:NW+w/kIC248hmLzODZb5hWRBEmyDl8EGSJ6BKjBuH30=
@@ -6,3 +6,6 @@ h1:2lSvzGAgTk5y379ilndL4gmDBN/sd0uUbTch5CE0LbY=
 20260525142834_add_prompt_source.sql h1:uUD+Detpa9oQz/9cdqqshzpJnHkOo5rSPw5FL03TW1c=
 20260525143626_add_federation_peers.sql h1:fnpLL+RJWFlXMUXK6dbJGaUW570Gr3z/RH6usdptiiE=
 20260525154346_add_federation_protocol.sql h1:BgdNNUcc1SEuZF0CpF8/xSWq2NEKI+W6KX9B2O3hlxs=
+20260527000000_add_users.sql h1:cTok9WLUBEJvPUbLSJ067glhmB4+nLnxmrh6cbhhd7o=
+20260527130000_add_user_invites.sql h1:SvNdUWvZ7GbL9fxtKiRqB9Q7mAA2TT/8Q8BY2cG5nW4=
+20260714125307_remote_auth.sql h1:WQ2cZAkZPRvQtZrCRunqbUJvWjn6Dky5uSd5XurNh/g=

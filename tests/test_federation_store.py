@@ -236,7 +236,9 @@ def test_reconcile_members_table_adds_unknown_member(store: VersionStore) -> Non
     store.get_or_create_identity()
     fed, _ = store.create_federation("my-fed")
     pub2, _priv2 = generate_key_pair()
-    submitted = [{"public_key": pub2, "federate_url": "http://new.example/v1/federate", "is_accepted": True}]
+    submitted = [
+        {"public_key": pub2, "federate_url": "http://new.example/v1/federate", "is_accepted": True}
+    ]
     canonical = store.reconcile_members_table(fed.id, submitted)
     keys = {m.public_key for m in canonical}
     assert pub2 in keys
@@ -247,7 +249,9 @@ def test_reconcile_members_table_prunes_leaving_member(store: VersionStore) -> N
     fed, _ = store.create_federation("my-fed")
     pub2, _priv2 = generate_key_pair()
     # Add a member then mark it as not accepted (wants to leave)
-    m = store.add_federation_member(fed.id, pub2, "http://peer.example/v1/federate", is_accepted=False)
+    m = store.add_federation_member(
+        fed.id, pub2, "http://peer.example/v1/federate", is_accepted=False
+    )
     canonical = store.reconcile_members_table(fed.id, [])
     member_ids = {m.id for m in canonical}
     assert m.id not in member_ids
@@ -257,7 +261,9 @@ def test_reconcile_members_table_skips_existing_keys(store: VersionStore) -> Non
     store.get_or_create_identity()
     fed, founding_member = store.create_federation("my-fed")
     # Submit the founding member's key again — should not create a duplicate
-    submitted = [{"public_key": founding_member.public_key, "federate_url": "", "is_accepted": True}]
+    submitted = [
+        {"public_key": founding_member.public_key, "federate_url": "", "is_accepted": True}
+    ]
     canonical = store.reconcile_members_table(fed.id, submitted)
     assert len(canonical) == 1
 

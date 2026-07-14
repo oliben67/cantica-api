@@ -615,9 +615,7 @@ class _Federation:
         """Bind to *store*."""
         self._s = store
 
-    async def add_peer(
-        self, name: str, url: str, api_key: str | None = None
-    ) -> FederationPeer:
+    async def add_peer(self, name: str, url: str, api_key: str | None = None) -> FederationPeer:
         """Register a new read-only federation peer and return it."""
         return await asyncio.to_thread(self._s.add_federation_peer, name, url, api_key)
 
@@ -653,8 +651,11 @@ class _Federation:
             return []
 
         params: dict[str, Any] = {
-            "q": q, "namespace": namespace, "tag": tag,
-            "model": model, "visibility": visibility,
+            "q": q,
+            "namespace": namespace,
+            "tag": tag,
+            "model": model,
+            "visibility": visibility,
         }
         clean = {k: v for k, v in params.items() if v is not None}
 
@@ -664,18 +665,22 @@ class _Federation:
                 headers["X-API-Key"] = peer.api_key
             try:
                 async with httpx.AsyncClient(timeout=15) as client:
-                    resp = await client.get(
-                        f"{peer.url}/v1/prompts", params=clean, headers=headers
-                    )
+                    resp = await client.get(f"{peer.url}/v1/prompts", params=clean, headers=headers)
                 resp.raise_for_status()
                 return {
-                    "peer_id": peer.id, "peer_name": peer.name, "peer_url": peer.url,
-                    "prompts": resp.json(), "error": None,
+                    "peer_id": peer.id,
+                    "peer_name": peer.name,
+                    "peer_url": peer.url,
+                    "prompts": resp.json(),
+                    "error": None,
                 }
             except Exception as exc:  # noqa: BLE001
                 return {
-                    "peer_id": peer.id, "peer_name": peer.name, "peer_url": peer.url,
-                    "prompts": [], "error": str(exc),
+                    "peer_id": peer.id,
+                    "peer_name": peer.name,
+                    "peer_url": peer.url,
+                    "prompts": [],
+                    "error": str(exc),
                 }
 
         return list(await asyncio.gather(*[_query(p) for p in peers]))
@@ -697,7 +702,10 @@ class _Federation:
             return []
 
         params: dict[str, Any] = {
-            "namespace": namespace, "tag": tag, "model": model, "visibility": visibility,
+            "namespace": namespace,
+            "tag": tag,
+            "model": model,
+            "visibility": visibility,
         }
         clean = {k: v for k, v in params.items() if v is not None}
 
@@ -707,18 +715,22 @@ class _Federation:
                 headers["X-API-Key"] = peer.api_key
             try:
                 async with httpx.AsyncClient(timeout=15) as client:
-                    resp = await client.get(
-                        f"{peer.url}/v1/prompts", params=clean, headers=headers
-                    )
+                    resp = await client.get(f"{peer.url}/v1/prompts", params=clean, headers=headers)
                 resp.raise_for_status()
                 return {
-                    "peer_id": peer.id, "peer_name": peer.name, "peer_url": peer.url,
-                    "prompts": resp.json(), "error": None,
+                    "peer_id": peer.id,
+                    "peer_name": peer.name,
+                    "peer_url": peer.url,
+                    "prompts": resp.json(),
+                    "error": None,
                 }
             except Exception as exc:  # noqa: BLE001
                 return {
-                    "peer_id": peer.id, "peer_name": peer.name, "peer_url": peer.url,
-                    "prompts": [], "error": str(exc),
+                    "peer_id": peer.id,
+                    "peer_name": peer.name,
+                    "peer_url": peer.url,
+                    "prompts": [],
+                    "error": str(exc),
                 }
 
         return list(await asyncio.gather(*[_query(p) for p in peers]))
@@ -782,9 +794,7 @@ class _FederateProtocol:
                     continue
                 table_json = _json.dumps([m.model_dump(mode="json") for m in members])
                 encrypted = encrypt_for(table_json.encode(), fed.founding_key)
-                sig = await asyncio.to_thread(
-                    self._s.sign_federation_message, encrypted.encode()
-                )
+                sig = await asyncio.to_thread(self._s.sign_federation_message, encrypted.encode())
                 sync_req = {
                     "federation_id": fed.id,
                     "public_key": identity.public_key_pem,

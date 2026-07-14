@@ -140,9 +140,7 @@ def test_create_federation_success(client: TestClient, store: VersionStore) -> N
     assert data["member_count"] == 1
 
 
-def test_create_federation_duplicate_name_returns_409(
-    client: TestClient, federation: dict
-) -> None:
+def test_create_federation_duplicate_name_returns_409(client: TestClient, federation: dict) -> None:
     r = client.post("/v1/federations", json={"name": "test-fed"})
     assert r.status_code == 409
 
@@ -219,7 +217,9 @@ def test_eject_member_success(client: TestClient, store: VersionStore) -> None:
 
 def test_join_federation_success(client: TestClient, federation: dict, store: VersionStore) -> None:
     fed_id = federation["id"]
-    mock_c = _make_http_mock({"ok": True, "message": "joined", "members": [], "federation_name": "test-fed"})
+    mock_c = _make_http_mock(
+        {"ok": True, "message": "joined", "members": [], "federation_name": "test-fed"}
+    )
     with patch("httpx.AsyncClient", return_value=mock_c):
         r = client.post(
             f"/v1/federations/{fed_id}/join",
@@ -229,9 +229,7 @@ def test_join_federation_success(client: TestClient, federation: dict, store: Ve
     assert r.json()["ok"] is True
 
 
-def test_join_federation_server_error_returns_502(
-    client: TestClient, federation: dict
-) -> None:
+def test_join_federation_server_error_returns_502(client: TestClient, federation: dict) -> None:
     # Third party imports:
     import httpx  # noqa: PLC0415
 
@@ -245,9 +243,7 @@ def test_join_federation_server_error_returns_502(
     assert r.status_code == 502
 
 
-def test_join_federation_not_ok_response(
-    client: TestClient, federation: dict
-) -> None:
+def test_join_federation_not_ok_response(client: TestClient, federation: dict) -> None:
     fed_id = federation["id"]
     mock_c = _make_http_mock({"ok": False, "message": "rejected"})
     with patch("httpx.AsyncClient", return_value=mock_c):
@@ -277,9 +273,7 @@ def test_leave_federation_success(client: TestClient, federation: dict) -> None:
     assert r.json()["ok"] is True
 
 
-def test_leave_federation_notify_error_still_ok(
-    client: TestClient, store: VersionStore
-) -> None:
+def test_leave_federation_notify_error_still_ok(client: TestClient, store: VersionStore) -> None:
     store.get_or_create_identity()
     fed, _ = store.create_federation("my-fed")
     # Add a second member with a federate_url so the leave notification fires
@@ -306,9 +300,7 @@ def test_sync_federation_not_found(client: TestClient, store: VersionStore) -> N
     assert r.status_code == 404
 
 
-def test_sync_federation_is_founder_returns_400(
-    client: TestClient, federation: dict
-) -> None:
+def test_sync_federation_is_founder_returns_400(client: TestClient, federation: dict) -> None:
     fed_id = federation["id"]
     r = client.post(f"/v1/federations/{fed_id}/sync")
     assert r.status_code == 400
@@ -340,9 +332,7 @@ def test_sync_federation_no_founder_url_returns_400(
     assert r.status_code == 400
 
 
-def test_sync_federation_http_error_returns_502(
-    client: TestClient, store: VersionStore
-) -> None:
+def test_sync_federation_http_error_returns_502(client: TestClient, store: VersionStore) -> None:
     """Non-founder with valid founder URL but httpx error → 502."""
     store.get_or_create_identity()
     fed, _ = store.create_federation("my-fed")
@@ -377,9 +367,7 @@ def test_sync_federation_http_error_returns_502(
 # ── POST /v1/federate (inbound protocol) ──────────────────────────────────────
 
 
-def test_federate_invalid_signature_returns_401(
-    client: TestClient, store: VersionStore
-) -> None:
+def test_federate_invalid_signature_returns_401(client: TestClient, store: VersionStore) -> None:
     store.get_or_create_identity()
     pub2, _priv2 = generate_key_pair()
     r = client.post(
@@ -415,9 +403,7 @@ def test_federate_join_action(client: TestClient, federation: dict, store: Versi
     assert data["message"] == "joined"
 
 
-def test_federate_join_federation_not_found(
-    client: TestClient, store: VersionStore
-) -> None:
+def test_federate_join_federation_not_found(client: TestClient, store: VersionStore) -> None:
     store.get_or_create_identity()
     pub2, priv2 = generate_key_pair()
     body = _signed_request_with_key(
@@ -490,7 +476,7 @@ def test_federate_eject_action_by_founder(
     # The store's own identity is the founder
     identity = store.get_or_create_identity()
     pub2, priv2 = generate_key_pair()
-    m = store.add_federation_member(fed_id, pub2, "http://peer.example/v1/federate")
+    _ = store.add_federation_member(fed_id, pub2, "http://peer.example/v1/federate")
     # Sign as the founder (store's own private key)
     body = _signed_request(
         store,
@@ -523,9 +509,7 @@ def test_federate_eject_not_founder_returns_403(
     assert r.status_code == 403
 
 
-def test_federate_eject_federation_not_found(
-    client: TestClient, store: VersionStore
-) -> None:
+def test_federate_eject_federation_not_found(client: TestClient, store: VersionStore) -> None:
     store.get_or_create_identity()
     pub2, priv2 = generate_key_pair()
     body = _signed_request_with_key(
@@ -540,13 +524,11 @@ def test_federate_eject_federation_not_found(
     assert r.status_code == 404
 
 
-def test_federate_eject_self(
-    client: TestClient, federation: dict, store: VersionStore
-) -> None:
+def test_federate_eject_self(client: TestClient, federation: dict, store: VersionStore) -> None:
     """Eject without target_key but sender is identity (self-eject path)."""
     fed_id = federation["id"]
     identity = store.get_or_create_identity()
-    our_member = store.get_member_by_key(fed_id, identity.public_key_pem)
+    _ = store.get_member_by_key(fed_id, identity.public_key_pem)
 
     body = _signed_request(
         store,
@@ -581,9 +563,7 @@ def test_federate_unknown_action_returns_400(
 # ── POST /v1/federate/sync ────────────────────────────────────────────────────
 
 
-def test_federate_sync_not_founder_returns_403(
-    client: TestClient, store: VersionStore
-) -> None:
+def test_federate_sync_not_founder_returns_403(client: TestClient, store: VersionStore) -> None:
     """Sending a sync request to a non-founder server returns 403."""
     store.get_or_create_identity()
     fed, _ = store.create_federation("my-fed")
@@ -661,7 +641,7 @@ def test_federate_sync_decryption_failure_returns_400(
     client: TestClient, federation: dict, store: VersionStore
 ) -> None:
     fed_id = federation["id"]
-    identity = store.get_or_create_identity()
+    _ = store.get_or_create_identity()
     # Use a different key pair so the founder can't decrypt
     pub2, priv2 = generate_key_pair()
     # Encrypt with pub2 (founder can't decrypt since they have a different private key)
@@ -679,9 +659,7 @@ def test_federate_sync_decryption_failure_returns_400(
     assert r.status_code == 400
 
 
-def test_federate_sync_success(
-    client: TestClient, federation: dict, store: VersionStore
-) -> None:
+def test_federate_sync_success(client: TestClient, federation: dict, store: VersionStore) -> None:
     fed_id = federation["id"]
     identity = store.get_or_create_identity()
     # Encrypt with the founder's (local server's) public key
@@ -748,15 +726,13 @@ def _signed_request_with_key(
 # ── eject_member: notify remaining members (lines 185-214, 219-220) ──────────
 
 
-def test_eject_member_notifies_remaining_members(
-    client: TestClient, store: VersionStore
-) -> None:
+def test_eject_member_notifies_remaining_members(client: TestClient, store: VersionStore) -> None:
     """Ejecting a member when others remain triggers the notify loop + _send_federate."""
     store.get_or_create_identity()
     fed, founding_member = store.create_federation("my-fed")
     # Add member2 (will be notified — has a federate_url)
     pub2, _priv2 = generate_key_pair()
-    m2 = store.add_federation_member(fed.id, pub2, "http://peer2.example/v1/federate")
+    _ = store.add_federation_member(fed.id, pub2, "http://peer2.example/v1/federate")
     # Add member3 (will be ejected)
     pub3, _priv3 = generate_key_pair()
     m3 = store.add_federation_member(fed.id, pub3, "")
@@ -792,18 +768,18 @@ async def test_send_federate_helper(store: VersionStore) -> None:
 # ── join_federation: federation does not exist locally (lines 262-282) ───────
 
 
-def test_join_federation_creates_local_placeholder(
-    client: TestClient, store: VersionStore
-) -> None:
+def test_join_federation_creates_local_placeholder(client: TestClient, store: VersionStore) -> None:
     """When ok=True and the federation is unknown locally, a placeholder is created."""
     store.get_or_create_identity()
     new_fed_id = "11111111-0000-0000-0000-000000000001"
-    mock_c = _make_http_mock({
-        "ok": True,
-        "message": "joined",
-        "members": [],
-        "federation_name": "remote-fed",
-    })
+    mock_c = _make_http_mock(
+        {
+            "ok": True,
+            "message": "joined",
+            "members": [],
+            "federation_name": "remote-fed",
+        }
+    )
     with patch("httpx.AsyncClient", return_value=mock_c):
         r = client.post(
             f"/v1/federations/{new_fed_id}/join",
@@ -816,9 +792,7 @@ def test_join_federation_creates_local_placeholder(
 # ── leave_federation: our membership not found (branch 338->340) ─────────────
 
 
-def test_leave_federation_membership_not_found(
-    client: TestClient, store: VersionStore
-) -> None:
+def test_leave_federation_membership_not_found(client: TestClient, store: VersionStore) -> None:
     """Leave succeeds even when our own member record is absent."""
     store.get_or_create_identity()
     fed, founding_member = store.create_federation("my-fed")
@@ -835,9 +809,7 @@ def test_leave_federation_membership_not_found(
 # ── sync_federation: success path (lines 387-388) ────────────────────────────
 
 
-def test_sync_federation_returns_encrypted_table(
-    client: TestClient, store: VersionStore
-) -> None:
+def test_sync_federation_returns_encrypted_table(client: TestClient, store: VersionStore) -> None:
     """Non-founder sync succeeds and returns the canonical encrypted table."""
     store.get_or_create_identity()
     fed, _ = store.create_federation("my-fed")
@@ -895,9 +867,7 @@ def test_federate_eject_target_key_not_found_in_db(
 # ── federate eject: no target_key and sender != our identity (454->459) ──────
 
 
-def test_federate_eject_no_target_not_our_identity(
-    client: TestClient, store: VersionStore
-) -> None:
+def test_federate_eject_no_target_not_our_identity(client: TestClient, store: VersionStore) -> None:
     """Eject with no target_key from a sender that is not our local identity."""
     store.get_or_create_identity()
     fed, _ = store.create_federation("my-fed")

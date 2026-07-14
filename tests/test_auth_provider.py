@@ -149,7 +149,7 @@ async def test_get_user_found(store: VersionStore):
     assert result.username == "leo"
 
 
-async def test_get_user_not_found(provider: LocalAuthProvider):
+async def test_provider_get_user_not_found(provider: LocalAuthProvider):
     assert await provider.get_user("no-id") is None
 
 
@@ -177,13 +177,20 @@ async def test_get_anonymous_user_empty_roles():
 
 
 async def test_bootstrap_seeds_users(store: VersionStore):
-    cfg = AuthConfig.model_validate({
-        "local": {
-            "seed_users": [
-                {"username": "seeded", "email": "s@example.com", "password": "pw", "roles": ["admin"]}
-            ]
+    cfg = AuthConfig.model_validate(
+        {
+            "local": {
+                "seed_users": [
+                    {
+                        "username": "seeded",
+                        "email": "s@example.com",
+                        "password": "pw",
+                        "roles": ["admin"],
+                    }
+                ]
+            }
         }
-    })
+    )
     provider = LocalAuthProvider(store, cfg)
     await provider.bootstrap()
     row = store.get_user_by_username("seeded")
@@ -192,9 +199,9 @@ async def test_bootstrap_seeds_users(store: VersionStore):
 
 
 async def test_bootstrap_idempotent(store: VersionStore):
-    cfg = AuthConfig.model_validate({
-        "local": {"seed_users": [{"username": "dup", "password": "pw"}]}
-    })
+    cfg = AuthConfig.model_validate(
+        {"local": {"seed_users": [{"username": "dup", "password": "pw"}]}}
+    )
     provider = LocalAuthProvider(store, cfg)
     await provider.bootstrap()
     await provider.bootstrap()  # second call must not raise or duplicate

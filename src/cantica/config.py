@@ -60,9 +60,13 @@ class Settings(BaseSettings):
     federation_sync_interval: int = 3600  # seconds between background sync cycles
 
     # User auth / session settings
-    auth_config_path: Path | None = None   # path to auth.yaml; None = defaults only
-    jwt_secret: str = ""                   # HS256 secret; auto-derived if empty
-    jwt_expire_minutes: int = 60           # session token lifetime
+    auth_config_path: Path | None = None  # path to auth.yaml; None = defaults only
+    jwt_secret: str = ""  # HS256 secret; auto-derived if empty
+    jwt_expire_minutes: int = 60  # session token lifetime
+    # When False, invited accounts start disabled + flagged 'newbie' for admin review.
+    auto_activate_users: bool = True
+    # Maximum accepted age (iat) of client-signed key assertions.
+    assertion_max_age_seconds: int = 300
 
     # Federation permissions
     federation_policy_path: Path | None = None  # path to federation-policy.yaml

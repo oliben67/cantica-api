@@ -31,5 +31,5 @@ class SessionResponse(BaseModel):
 
     access_token: str
     token_type: str = "bearer"
-    expires_in: int          # seconds
+    expires_in: int  # seconds
     user: UserResponse

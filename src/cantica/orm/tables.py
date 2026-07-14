@@ -308,7 +308,7 @@ class FederationMemberOrm(Base):
 
     id: Mapped[str] = mapped_column(String, primary_key=True)
     federation_id: Mapped[str] = mapped_column(String, ForeignKey("federations.id"))
-    public_key_enc: Mapped[str] = mapped_column(String)   # encrypted member public key
+    public_key_enc: Mapped[str] = mapped_column(String)  # encrypted member public key
     federate_url_enc: Mapped[str] = mapped_column(String)  # encrypted federate URL
     is_accepted: Mapped[bool] = mapped_column(Integer, default=1)
     joined_at: Mapped[str] = mapped_column(String)
@@ -333,8 +333,59 @@ class UserOrm(Base):
     password_hash: Mapped[str | None] = mapped_column(String, nullable=True)
     roles_json: Mapped[str] = mapped_column(String, default='["user"]')
     is_active: Mapped[int] = mapped_column(Integer, default=1)
+    # User id provided by the enterprise infrastructure; NULL outside enterprise setups.
+    e_user_id: Mapped[str | None] = mapped_column(String, nullable=True, index=True)
     created_at: Mapped[str] = mapped_column(String)
     updated_at: Mapped[str] = mapped_column(String)
+
+
+class UserFlagOrm(Base):
+    """A moderation / lifecycle mark on a user (newbie, warning:*, blocked:*).
+
+    A user can hold several flags; the vocabulary lives in core/auth_gate.py.
+    """
+
+    __tablename__ = "user_flags"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+    user_id: Mapped[str] = mapped_column(
+        String, ForeignKey("users.id", ondelete="CASCADE"), index=True
+    )
+    flag: Mapped[str] = mapped_column(String, index=True)
+    comment: Mapped[str] = mapped_column(String, default="")
+    created_by: Mapped[str] = mapped_column(String, default="")
+    created_at: Mapped[str] = mapped_column(String)
+
+
+class JwtKeyOrm(Base):
+    """A user's enrolled PUBLIC signing key for key-based authentication.
+
+    cantica_user_id is e_user_id for enterprise users, the account email
+    otherwise. Claim formats are shared with studio-api so one client key
+    pair can serve both servers.
+    """
+
+    __tablename__ = "jwt_keys"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+    cantica_user_id: Mapped[str] = mapped_column(String, index=True)
+    user_id: Mapped[str] = mapped_column(
+        String, ForeignKey("users.id", ondelete="CASCADE"), index=True
+    )
+    public_key: Mapped[str] = mapped_column(String)
+    created_at: Mapped[str] = mapped_column(String)
+    last_used_at: Mapped[str | None] = mapped_column(String, nullable=True)
+    revoked_at: Mapped[str | None] = mapped_column(String, nullable=True)
+
+
+class UsedJtiOrm(Base):
+    """Replay protection — every client-signed JWT's jti is burned on first use."""
+
+    __tablename__ = "used_jtis"
+
+    jti: Mapped[str] = mapped_column(String, primary_key=True)
+    purpose: Mapped[str] = mapped_column(String)
+    expires_at: Mapped[str] = mapped_column(String)
 
 
 class UserInviteOrm(Base):

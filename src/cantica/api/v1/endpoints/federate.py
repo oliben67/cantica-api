@@ -151,9 +151,7 @@ def create_federation(
     )
 
 
-@router.get(
-    "/federations/{federation_id}/members", response_model=list[FederationMemberResponse]
-)
+@router.get("/federations/{federation_id}/members", response_model=list[FederationMemberResponse])
 def list_members(
     federation_id: str, store: StoreDep, _user: UserDep
 ) -> list[FederationMemberResponse]:
@@ -166,9 +164,7 @@ def list_members(
 
 
 @router.delete("/federations/{federation_id}/members/{member_id}", status_code=204)
-def eject_member(
-    federation_id: str, member_id: str, store: StoreDep, _user: UserDep
-) -> None:
+def eject_member(federation_id: str, member_id: str, store: StoreDep, _user: UserDep) -> None:
     """Eject a member (founder only).  Sends a signed eject notice to all remaining members."""
     fed = store.get_federation(federation_id)
     if fed is None:
@@ -260,11 +256,11 @@ async def join_federation(
                 # We don't have the federation yet; create a placeholder
                 # (founder will sync canonical state later)
                 store.session.execute(
-                    __import__("sqlalchemy.dialects.sqlite", fromlist=["insert"]).insert(
-                        __import__(
-                            "cantica.orm.tables", fromlist=["FederationOrm"]
-                        ).FederationOrm
-                    ).values(
+                    __import__("sqlalchemy.dialects.sqlite", fromlist=["insert"])
+                    .insert(
+                        __import__("cantica.orm.tables", fromlist=["FederationOrm"]).FederationOrm
+                    )
+                    .values(
                         id=federation_id,
                         name=data.get("federation_name", "unknown"),
                         founding_key_enc=store._fed_enc_key and "",
@@ -277,7 +273,8 @@ async def join_federation(
                                 fromlist=["_utcnow"],
                             )._utcnow()
                         ),
-                    ).on_conflict_do_nothing()
+                    )
+                    .on_conflict_do_nothing()
                 )
                 store.session.commit()
             # Add ourselves as a member
@@ -289,16 +286,16 @@ async def join_federation(
             )
         return FederateResponse(ok=ok, message=data.get("message", ""))
     except httpx.HTTPError as exc:
-        raise HTTPException(status_code=502, detail=f"Could not reach founding server: {exc}") from exc
+        raise HTTPException(
+            status_code=502, detail=f"Could not reach founding server: {exc}"
+        ) from exc
 
 
 # ── Leave ──────────────────────────────────────────────────────────────────
 
 
 @router.post("/federations/{federation_id}/leave", response_model=FederateResponse)
-async def leave_federation(
-    federation_id: str, store: StoreDep, _user: UserDep
-) -> FederateResponse:
+async def leave_federation(federation_id: str, store: StoreDep, _user: UserDep) -> FederateResponse:
     """Send a leave notice to all known members and remove local membership."""
     fed = store.get_federation(federation_id)
     if fed is None:
@@ -345,9 +342,7 @@ async def leave_federation(
 
 
 @router.post("/federations/{federation_id}/sync", response_model=SyncResponse)
-async def sync_federation(
-    federation_id: str, store: StoreDep, _user: UserDep
-) -> SyncResponse:
+async def sync_federation(federation_id: str, store: StoreDep, _user: UserDep) -> SyncResponse:
     """Sync local member table with the founding server.
 
     Encrypts the local member list with the founder's public key, signs it,
@@ -476,9 +471,7 @@ def federate_sync(req: SyncRequest, store: StoreDep, _user: UserDep) -> SyncResp
         raise HTTPException(status_code=403, detail="Only the founder can handle sync requests")
 
     # Verify signature over the encrypted_table bytes
-    if not verify_signature(
-        req.encrypted_table.encode(), req.signature, req.public_key
-    ):
+    if not verify_signature(req.encrypted_table.encode(), req.signature, req.public_key):
         raise HTTPException(status_code=401, detail="Invalid signature")
 
     # Decrypt the submitted table

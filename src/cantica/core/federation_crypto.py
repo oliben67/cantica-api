@@ -58,7 +58,9 @@ def sign_message(data: bytes, private_pem: str) -> str:
     Returns a base64-encoded signature string.
     """
     private_key = serialization.load_pem_private_key(private_pem.encode(), password=None)
-    signature = private_key.sign(  # type: ignore[union-attr]
+    if not isinstance(private_key, rsa.RSAPrivateKey):
+        raise TypeError("sign_message requires an RSA private key")
+    signature = private_key.sign(
         data,
         padding.PSS(
             mgf=padding.MGF1(hashes.SHA256()),
@@ -75,9 +77,11 @@ def verify_signature(data: bytes, signature_b64: str, public_pem: str) -> bool:
     Returns ``True`` if the signature is valid, ``False`` otherwise.
     """
     public_key = serialization.load_pem_public_key(public_pem.encode())
+    if not isinstance(public_key, rsa.RSAPublicKey):
+        return False
     try:
         raw_sig = base64.b64decode(signature_b64)
-        public_key.verify(  # type: ignore[union-attr]
+        public_key.verify(
             raw_sig,
             data,
             padding.PSS(

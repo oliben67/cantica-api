@@ -97,7 +97,9 @@ class _ResettingSession(Session):
     def execute(self, statement, params=None, execution_options=None, **kwargs):  # type: ignore[override]
         try:
             if execution_options is not None:
-                return super().execute(statement, params, execution_options=execution_options, **kwargs)
+                return super().execute(
+                    statement, params, execution_options=execution_options, **kwargs
+                )
             return super().execute(statement, params, **kwargs)
         except SQLAlchemyError:
             self.rollback()
@@ -137,6 +139,7 @@ def open_session(
 
     if create_tables:
         Base.metadata.create_all(engine)
+        _migrate(engine)
 
     if dialect == "sqlite":
         with engine.begin() as conn:
@@ -161,3 +164,16 @@ def _ensure_instance_config(session: Session) -> None:
     if not row:
         session.add(InstanceConfigOrm(key="certificate_secret", value=generate_instance_secret()))
         session.commit()
+
+
+def _migrate(engine) -> None:  # noqa: ANN001
+    """Additive migrations create_all cannot express (existing tables gain columns)."""
+    # Third party imports:
+    from sqlalchemy import inspect, text  # noqa: PLC0415
+
+    inspector = inspect(engine)
+    if "users" in inspector.get_table_names():
+        cols = {c["name"] for c in inspector.get_columns("users")}
+        if "e_user_id" not in cols:
+            with engine.begin() as conn:
+                conn.execute(text("ALTER TABLE users ADD COLUMN e_user_id VARCHAR"))

@@ -67,11 +67,16 @@ async def _fetch_prompts(
         resp.raise_for_status()
         raw: list[dict] = resp.json()
         prompts = [PromptResponse(**p) for p in raw]
-        return FederatedResult(peer_id=peer_id, peer_name=peer_name, peer_url=peer_url, prompts=prompts)
+        return FederatedResult(
+            peer_id=peer_id, peer_name=peer_name, peer_url=peer_url, prompts=prompts
+        )
     except Exception as exc:  # noqa: BLE001
         return FederatedResult(
-            peer_id=peer_id, peer_name=peer_name, peer_url=peer_url,
-            prompts=[], error=str(exc),
+            peer_id=peer_id,
+            peer_name=peer_name,
+            peer_url=peer_url,
+            prompts=[],
+            error=str(exc),
         )
 
 
@@ -116,10 +121,7 @@ async def federated_search(
     if not peers:
         return []
     params = {"q": q, "namespace": namespace, "tag": tag, "model": model, "visibility": visibility}
-    tasks = [
-        _fetch_prompts(p.id, p.name, p.url, p.api_key, params)
-        for p in peers
-    ]
+    tasks = [_fetch_prompts(p.id, p.name, p.url, p.api_key, params) for p in peers]
     return list(await asyncio.gather(*tasks))
 
 
@@ -137,8 +139,5 @@ async def federated_list(
     if not peers:
         return []
     params = {"namespace": namespace, "tag": tag, "model": model, "visibility": visibility}
-    tasks = [
-        _fetch_prompts(p.id, p.name, p.url, p.api_key, params)
-        for p in peers
-    ]
+    tasks = [_fetch_prompts(p.id, p.name, p.url, p.api_key, params) for p in peers]
     return list(await asyncio.gather(*tasks))

@@ -138,12 +138,15 @@ from cantica.orm.tables import (
     FederationPeerOrm,
     ForkOrm,
     InstanceConfigOrm,
+    JwtKeyOrm,
     NamespaceCertOrm,
     NamespaceOrm,
     PromptOrm,
     ServerIdentityOrm,
     StarOrm,
     TagOrm,
+    UsedJtiOrm,
+    UserFlagOrm,
     UserOrm,
     VersionOrm,
     WebhookOrm,
@@ -1350,6 +1353,129 @@ class VersionStore:
             select(UserOrm).where(UserOrm.username == username)
         ).scalar_one_or_none()
 
+    def get_user_by_email(self, email: str) -> UserOrm | None:
+        """Return the ``UserOrm`` row for *email*, or ``None``."""
+        return self.session.execute(
+            select(UserOrm).where(UserOrm.email == email)
+        ).scalar_one_or_none()
+
+    # ── User flags (spec REGISTRATION A.4) ───────────────────────────────────
+
+    def list_user_flags(self, user_id: str) -> dict[str, str]:
+        """Return {flag: comment} for *user_id*."""
+        rows = (
+            self.session.execute(select(UserFlagOrm).where(UserFlagOrm.user_id == user_id))
+            .scalars()
+            .all()
+        )
+        return {r.flag: r.comment for r in rows}
+
+    def add_user_flag(
+        self, user_id: str, flag: str, comment: str = "", created_by: str = ""
+    ) -> None:
+        """Add *flag* to *user_id* (no-op when already present)."""
+        existing = self.session.execute(
+            select(UserFlagOrm).where(UserFlagOrm.user_id == user_id, UserFlagOrm.flag == flag)
+        ).scalar_one_or_none()
+        if existing is not None:
+            return
+        self.session.add(
+            UserFlagOrm(
+                id=str(uuid.uuid4()),
+                user_id=user_id,
+                flag=flag,
+                comment=comment,
+                created_by=created_by,
+                created_at=_iso(_utcnow()),
+            )
+        )
+        self.session.commit()
+
+    def remove_user_flag(self, user_id: str, flag: str) -> None:
+        """Remove *flag* from *user_id* (no-op when absent)."""
+        row = self.session.execute(
+            select(UserFlagOrm).where(UserFlagOrm.user_id == user_id, UserFlagOrm.flag == flag)
+        ).scalar_one_or_none()
+        if row is not None:
+            self.session.delete(row)
+            self.session.commit()
+
+    # ── Enrolled keys & jti replay protection (spec REGISTRATION A.5) ─────────
+
+    def add_jwt_key(self, cantica_user_id: str, user_id: str, public_key: str) -> str:
+        """Store an enrolled PUBLIC key; returns the key id."""
+        key_id = str(uuid.uuid4())
+        self.session.add(
+            JwtKeyOrm(
+                id=key_id,
+                cantica_user_id=cantica_user_id,
+                user_id=user_id,
+                public_key=public_key,
+                created_at=_iso(_utcnow()),
+            )
+        )
+        self.session.commit()
+        return key_id
+
+    def get_active_jwt_key(self, cantica_user_id: str) -> JwtKeyOrm | None:
+        """Return the non-revoked key for *cantica_user_id*, or ``None``."""
+        return self.session.execute(
+            select(JwtKeyOrm).where(
+                JwtKeyOrm.cantica_user_id == cantica_user_id,
+                JwtKeyOrm.revoked_at.is_(None),
+            )
+        ).scalar_one_or_none()
+
+    def user_has_active_jwt_key(self, user_id: str) -> bool:
+        """True when *user_id* already completed key enrolment."""
+        return (
+            self.session.execute(
+                select(JwtKeyOrm).where(
+                    JwtKeyOrm.user_id == user_id, JwtKeyOrm.revoked_at.is_(None)
+                )
+            ).scalar_one_or_none()
+            is not None
+        )
+
+    def revoke_jwt_key(self, key_id: str) -> bool:
+        """Revoke a key; assertions signed with it stop working immediately."""
+        row = self.session.execute(
+            select(JwtKeyOrm).where(JwtKeyOrm.id == key_id)
+        ).scalar_one_or_none()
+        if row is None:
+            return False
+        row.revoked_at = _iso(_utcnow())
+        self.session.commit()
+        return True
+
+    def touch_jwt_key(self, key_id: str) -> None:
+        """Record key usage."""
+        row = self.session.execute(
+            select(JwtKeyOrm).where(JwtKeyOrm.id == key_id)
+        ).scalar_one_or_none()
+        if row is not None:
+            row.last_used_at = _iso(_utcnow())
+            self.session.commit()
+
+    def burn_jti(self, jti: str, purpose: str, expires_at: datetime) -> bool:
+        """Record *jti* as used; returns False on replay. Prunes expired rows."""
+        now = _iso(_utcnow())
+        for row in (
+            self.session.execute(select(UsedJtiOrm).where(UsedJtiOrm.expires_at < now))
+            .scalars()
+            .all()
+        ):
+            self.session.delete(row)
+        existing = self.session.execute(
+            select(UsedJtiOrm).where(UsedJtiOrm.jti == jti)
+        ).scalar_one_or_none()
+        if existing is not None:
+            self.session.commit()
+            return False
+        self.session.add(UsedJtiOrm(jti=jti, purpose=purpose, expires_at=_iso(expires_at)))
+        self.session.commit()
+        return True
+
     def list_users(self) -> list[User]:
         """Return all users."""
         rows = self.session.execute(select(UserOrm).order_by(UserOrm.created_at)).scalars().all()
@@ -1492,9 +1618,7 @@ class VersionStore:
         from cantica.orm.tables import UserInviteOrm  # noqa: PLC0415
 
         rows = (
-            self.session.execute(
-                select(UserInviteOrm).order_by(UserInviteOrm.created_at.desc())
-            )
+            self.session.execute(select(UserInviteOrm).order_by(UserInviteOrm.created_at.desc()))
             .scalars()
             .all()
         )
@@ -1553,7 +1677,10 @@ class VersionStore:
         if row is None:
             return None
         return FederationPeer(
-            id=row.id, name=row.name, url=row.url, api_key=row.api_key,
+            id=row.id,
+            name=row.name,
+            url=row.url,
+            api_key=row.api_key,
             added_at=_from_iso(row.added_at),
         )
 
@@ -1607,9 +1734,11 @@ class VersionStore:
         )
 
         pk = load_pem_private_key(priv.encode(), password=None)
-        pub = pk.public_key().public_bytes(
-            encoding=Encoding.PEM, format=PublicFormat.SubjectPublicKeyInfo
-        ).decode()
+        pub = (
+            pk.public_key()
+            .public_bytes(encoding=Encoding.PEM, format=PublicFormat.SubjectPublicKeyInfo)
+            .decode()
+        )
         row = self.session.execute(
             select(ServerIdentityOrm).where(ServerIdentityOrm.id == "local")
         ).scalar_one_or_none()
@@ -1763,9 +1892,7 @@ class VersionStore:
             updated_at=now,
         )
 
-    def get_member_by_key(
-        self, federation_id: str, public_key: str
-    ) -> FederationMember | None:
+    def get_member_by_key(self, federation_id: str, public_key: str) -> FederationMember | None:
         """Find a member in *federation_id* by their public key (decrypts all rows)."""
         rows = (
             self.session.execute(
@@ -1805,9 +1932,7 @@ class VersionStore:
             updated_at=_from_iso(row.updated_at),
         )
 
-    def update_member_status(
-        self, member_id: str, is_accepted: bool
-    ) -> FederationMember | None:
+    def update_member_status(self, member_id: str, is_accepted: bool) -> FederationMember | None:
         """Update the ``is_accepted`` status for member *member_id*.
 
         Returns the updated model, or ``None`` if the member was not found.
@@ -1832,9 +1957,7 @@ class VersionStore:
         accepted_only: bool = True,
     ) -> list[FederationMember]:
         """Return members of *federation_id*, optionally restricted to accepted ones."""
-        stmt = select(FederationMemberOrm).where(
-            FederationMemberOrm.federation_id == federation_id
-        )
+        stmt = select(FederationMemberOrm).where(FederationMemberOrm.federation_id == federation_id)
         if accepted_only:
             stmt = stmt.where(FederationMemberOrm.is_accepted == 1)
         rows = self.session.execute(stmt).scalars().all()

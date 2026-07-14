@@ -693,10 +693,14 @@ def test_push_with_certificate(tmp_path: Path) -> None:
         result = runner.invoke(
             app,
             [
-                "push", "osteck/test",
-                "--remote", "http://r:8042",
-                "--certificate", "cert-token-abc",
-                "--vault", str(tmp_path),
+                "push",
+                "osteck/test",
+                "--remote",
+                "http://r:8042",
+                "--certificate",
+                "cert-token-abc",
+                "--vault",
+                str(tmp_path),
             ],
         )
     assert result.exit_code == 0
@@ -881,10 +885,14 @@ def test_pull_with_certificate(tmp_path: Path) -> None:
         result = runner.invoke(
             app,
             [
-                "pull", "osteck/test",
-                "--remote", "http://r:8042",
-                "--certificate", "pull-cert-xyz",
-                "--vault", str(local_vault),
+                "pull",
+                "osteck/test",
+                "--remote",
+                "http://r:8042",
+                "--certificate",
+                "pull-cert-xyz",
+                "--vault",
+                str(local_vault),
             ],
         )
     assert result.exit_code == 0

@@ -44,6 +44,7 @@ from cantica.api.v1.endpoints import (
     forks,
     hooks,
     invites,
+    keyauth,
     namespaces,
     prompts,
     push,
@@ -71,6 +72,7 @@ router.include_router(render.router)
 router.include_router(resolve.router)
 router.include_router(hooks.router)
 router.include_router(auth.router)
+router.include_router(keyauth.router)
 router.include_router(push.router)
 router.include_router(namespaces.router)
 router.include_router(federation.router)

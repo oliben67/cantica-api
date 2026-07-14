@@ -106,6 +106,16 @@ def get_current_user(
         token = authorization.split(" ", 1)[1]
         user = verify_jwt(token, get_jwt_secret())
         if user is not None:
+            # Flag gate (spec AUTH F) runs on EVERY request so blocked:* flags
+            # and deactivation invalidate live tokens, not just future logins.
+            # Local imports:
+            from cantica.core.auth_gate import GENERIC_AUTH_FAILURE, gate_user  # noqa: PLC0415
+
+            row = store.get_user_by_id(user.id)
+            if row is not None:
+                gate = gate_user(row, store.list_user_flags(user.id), context="request:jwt")
+                if not gate.allowed:
+                    raise HTTPException(status_code=401, detail=GENERIC_AUTH_FAILURE)
             return user
         raise HTTPException(status_code=401, detail="Invalid or expired token")
 

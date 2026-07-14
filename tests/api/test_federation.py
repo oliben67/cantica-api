@@ -120,10 +120,21 @@ def test_federated_list_no_peers_returns_empty(client: TestClient) -> None:
 
 def test_federated_search_returns_peer_results(client: TestClient, peer: dict) -> None:
     fake_prompt = {
-        "id": "abc", "namespace": "acme", "name": "greet", "description": "",
-        "tags": [], "model_hints": [], "license": "MIT", "visibility": "public",
-        "variables": [], "star_count": 0, "fork_count": 0, "default_branch": "main",
-        "source": None, "created_at": "2026-01-01T00:00:00", "updated_at": "2026-01-01T00:00:00",
+        "id": "abc",
+        "namespace": "acme",
+        "name": "greet",
+        "description": "",
+        "tags": [],
+        "model_hints": [],
+        "license": "MIT",
+        "visibility": "public",
+        "variables": [],
+        "star_count": 0,
+        "fork_count": 0,
+        "default_branch": "main",
+        "source": None,
+        "created_at": "2026-01-01T00:00:00",
+        "updated_at": "2026-01-01T00:00:00",
         "slug": "acme/greet",
     }
     mock_c, _ = _mock_http_client([fake_prompt])
@@ -140,10 +151,21 @@ def test_federated_search_returns_peer_results(client: TestClient, peer: dict) -
 
 def test_federated_list_returns_peer_results(client: TestClient, peer: dict) -> None:
     fake_prompt = {
-        "id": "xyz", "namespace": "acme", "name": "helper", "description": "",
-        "tags": [], "model_hints": [], "license": "MIT", "visibility": "public",
-        "variables": [], "star_count": 0, "fork_count": 0, "default_branch": "main",
-        "source": None, "created_at": "2026-01-01T00:00:00", "updated_at": "2026-01-01T00:00:00",
+        "id": "xyz",
+        "namespace": "acme",
+        "name": "helper",
+        "description": "",
+        "tags": [],
+        "model_hints": [],
+        "license": "MIT",
+        "visibility": "public",
+        "variables": [],
+        "star_count": 0,
+        "fork_count": 0,
+        "default_branch": "main",
+        "source": None,
+        "created_at": "2026-01-01T00:00:00",
+        "updated_at": "2026-01-01T00:00:00",
         "slug": "acme/helper",
     }
     mock_c, _ = _mock_http_client([fake_prompt])

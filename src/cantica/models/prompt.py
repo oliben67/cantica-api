@@ -232,8 +232,8 @@ class Federation(BaseModel):
 
     id: str
     name: str
-    founding_key: str   # decrypted founding member's public key at read time
-    is_founder: bool    # True if founding_key matches this server's public key
+    founding_key: str  # decrypted founding member's public key at read time
+    is_founder: bool  # True if founding_key matches this server's public key
     created_at: datetime
 
 
@@ -242,8 +242,8 @@ class FederationMember(BaseModel):
 
     id: str
     federation_id: str
-    public_key: str     # decrypted public key PEM
-    federate_url: str   # decrypted /v1/federate URL
+    public_key: str  # decrypted public key PEM
+    federate_url: str  # decrypted /v1/federate URL
     is_accepted: bool
     joined_at: datetime
     updated_at: datetime
