@@ -18,3 +18,5 @@ atlas-dev.db
 
 # VS Code settings and workspace files
 .vscode/
+cantica-frontend/
+.gitmodules
