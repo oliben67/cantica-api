@@ -52,11 +52,11 @@ class Settings(BaseSettings):
     vault_path: Path = Path.home() / ".cantica" / "vault"
     database_url: str = ""  # if empty, defaults to sqlite:///<vault_path>/cantica.db
     auth_enabled: bool = False
-    # Extraction roadmap Phase C: when True, the security surface
-    # (/v1/auth, /v1/users, /v1/roles, /v1/directory) is served by the mounted
-    # cantica-secure shim and get_current_user delegates to it. The in-repo
-    # implementation stays and remains the flag-off path.
-    security_shim: bool = False
+    # When True (the default), the security surface (/v1/auth, /v1/users,
+    # /v1/roles, /v1/directory) is served by the mounted cantica-secure shim
+    # and get_current_user delegates to it. Set CANTICA_SECURITY_SHIM=false to
+    # fall back to the in-repo implementation, which remains in the tree.
+    security_shim: bool = True
     # Bootstrap admin for the cantica-secure shim (password login). Only used
     # when security_shim=True; the in-repo flow uses a printed setup key.
     secure_admin_email: str = "admin@cantica.local"
