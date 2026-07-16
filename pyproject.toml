@@ -21,6 +21,7 @@ dependencies = [
     "typer>=0.25.1",
     "uvicorn[standard]>=0.47.0",
     "fastmcp>=2.0",
+    "cantica-secure>=0.1",
 ]
 
 [project.scripts]
@@ -44,6 +45,9 @@ dev = [
     "mypy>=1.0",
     "atlas-provider-sqlalchemy>=0.5.0",
 ]
+
+[tool.uv.sources]
+cantica-secure = { path = "../cantica-secure/python", editable = true }
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

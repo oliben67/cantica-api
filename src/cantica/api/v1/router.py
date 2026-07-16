@@ -57,27 +57,43 @@ from cantica.api.v1.endpoints import (
     versions,
 )
 
-router = APIRouter()
 
-router.include_router(prompts.router)
-router.include_router(versions.router)
-router.include_router(tags.router)
-router.include_router(branches.router)
-router.include_router(forks.router)
-router.include_router(stars.router)
-router.include_router(comments.router)
-router.include_router(collections.router)
-router.include_router(diff.router)
-router.include_router(render.router)
-router.include_router(resolve.router)
-router.include_router(hooks.router)
-router.include_router(auth.router)
-router.include_router(keyauth.router)
-router.include_router(push.router)
-router.include_router(namespaces.router)
-router.include_router(federation.router)
-router.include_router(federate.router)
-router.include_router(sessions.router)
-router.include_router(admin.router)
-router.include_router(invites.router)
-router.include_router(upload.router)
+def build_router(*, include_security: bool = True) -> APIRouter:
+    """Assemble the v1 router.
+
+    With ``include_security=False`` the in-repo security endpoints (token
+    management, keyauth, sessions, invites, admin user management) are omitted;
+    the mounted cantica-secure shim serves those paths instead (extraction
+    roadmap Phase C). Domain routers are always included and continue to
+    authorize through ``get_current_user``, which delegates to the shim when
+    the flag is on.
+    """
+    r = APIRouter()
+    r.include_router(prompts.router)
+    r.include_router(versions.router)
+    r.include_router(tags.router)
+    r.include_router(branches.router)
+    r.include_router(forks.router)
+    r.include_router(stars.router)
+    r.include_router(comments.router)
+    r.include_router(collections.router)
+    r.include_router(diff.router)
+    r.include_router(render.router)
+    r.include_router(resolve.router)
+    r.include_router(hooks.router)
+    r.include_router(push.router)
+    r.include_router(namespaces.router)
+    r.include_router(federation.router)
+    r.include_router(federate.router)
+    r.include_router(upload.router)
+    if include_security:
+        r.include_router(auth.router)
+        r.include_router(keyauth.router)
+        r.include_router(sessions.router)
+        r.include_router(admin.router)
+        r.include_router(invites.router)
+    return r
+
+
+# Flag-off path (unchanged surface), included by main.py at /v1
+router = build_router()

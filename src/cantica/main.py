@@ -32,6 +32,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 # Local imports:
+from cantica.api.v1.router import build_router
 from cantica.api.v1.router import router as v1_router
 from cantica.core.logger import setup_logging
 
@@ -67,7 +68,21 @@ def create_app() -> FastAPI:
         allow_methods=["*"],
         allow_headers=["*"],
     )
-    app.include_router(v1_router, prefix="/v1")
+    # Local imports:
+    from cantica.config import get_settings  # noqa: PLC0415
+
+    settings = get_settings()
+    if settings.security_shim:
+        # Extraction roadmap Phase C: cantica-secure serves the security
+        # surface; the in-repo security endpoints are omitted (code stays as
+        # the flag-off path).
+        # Local imports:
+        from cantica.core.security_shim import build_security_shim  # noqa: PLC0415
+
+        app.include_router(build_router(include_security=False), prefix="/v1")
+        build_security_shim(settings).mount(app, prefix="/v1")
+    else:
+        app.include_router(v1_router, prefix="/v1")
 
     # Local imports:
     from cantica.mcp.server import mcp as _mcp  # noqa: PLC0415

@@ -25,7 +25,7 @@ from functools import lru_cache
 from typing import Annotated
 
 # Third party imports:
-from fastapi import Depends, Header, HTTPException
+from fastapi import Depends, Header, HTTPException, Request
 
 # Local imports:
 from cantica.config import Settings, get_settings
@@ -90,7 +90,8 @@ def get_jwt_secret() -> str:
     return hashlib.sha256(str(settings.vault_path).encode()).hexdigest()
 
 
-def get_current_user(
+async def get_current_user(
+    request: Request,
     authorization: Annotated[str | None, Header()] = None,
     x_api_key: Annotated[str | None, Header()] = None,
     store: VersionStore = Depends(get_store),
@@ -98,6 +99,27 @@ def get_current_user(
     auth_config: AuthConfig = Depends(get_auth_config),
 ) -> User:
     """FastAPI dependency that returns the authenticated (or anonymous) User."""
+    if settings.security_shim:
+        # Extraction roadmap Phase C: cantica-secure resolves the principal
+        # (local mode, anonymous access, and the per-request flag gate); the
+        # shim's principal adapter maps it onto Cantica's User model.
+        # Third party imports:
+        from cantica_secure.api.deps import (  # noqa: PLC0415
+            get_current_user as secure_get_current_user,
+        )
+        from fastapi.security import HTTPAuthorizationCredentials  # noqa: PLC0415
+
+        # Local imports:
+        from cantica.core.security_shim import to_cantica_user  # noqa: PLC0415
+
+        creds = None
+        if authorization and authorization.startswith("Bearer "):
+            creds = HTTPAuthorizationCredentials(
+                scheme="Bearer", credentials=authorization.split(" ", 1)[1]
+            )
+        principal = await secure_get_current_user(request, creds, x_api_key=x_api_key)
+        return to_cantica_user(principal)
+
     if not settings.auth_enabled:
         return User(id="local", username="local", roles=[Role.admin], is_active=True)
 
