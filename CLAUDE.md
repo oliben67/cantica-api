@@ -80,3 +80,7 @@ A version's SHA is not a content hash — it is `sha256("commit\n<content_sha>\n
 ### Configuration
 
 All settings are in `config.py` (`pydantic-settings`), env prefix `CANTICA_`. Key vars: `CANTICA_VAULT_PATH`, `CANTICA_AUTH_ENABLED`, `CANTICA_PORT`, `CANTICA_REMOTE_URL`.
+
+### Security shim (`CANTICA_SECURITY_SHIM`)
+
+Auth can optionally be served by the shared [`cantica-secure`](../cantica-secure/) package instead of the in-repo implementation. When `CANTICA_SECURITY_SHIM=true`, `create_app` mounts the shim's routers (`/v1/auth`, `/v1/users`, `/v1/roles`, `/v1/directory`) and `get_current_user` delegates to it, mapping its principal onto Cantica's `User` model (`core/security_shim.py`). The in-repo endpoints (`endpoints/{sessions,auth,keyauth,admin,invites}.py`) stay in the tree as the default flag-off path. `cantica-secure` is an **optional `shim` extra** (not a base dependency) — installed in the dev group so both configurations run in CI. Both flag states are tested (`tests/api/test_security_shim.py`).
