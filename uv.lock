@@ -272,7 +272,6 @@ version = "0.1.0"
 source = { editable = "." }
 dependencies = [
     { name = "bcrypt" },
-    { name = "cantica-secure" },
     { name = "cryptography" },
     { name = "fastapi" },
     { name = "fastmcp" },
@@ -291,10 +290,14 @@ dependencies = [
 postgres = [
     { name = "psycopg2-binary" },
 ]
+shim = [
+    { name = "cantica-secure" },
+]
 
 [package.dev-dependencies]
 dev = [
     { name = "atlas-provider-sqlalchemy" },
+    { name = "cantica-secure" },
     { name = "mypy" },
     { name = "pytest" },
     { name = "pytest-asyncio" },
@@ -305,7 +308,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "bcrypt", specifier = ">=4.2" },
-    { name = "cantica-secure", editable = "../cantica-secure/python" },
+    { name = "cantica-secure", marker = "extra == 'shim'", editable = "../cantica-secure/python" },
     { name = "cryptography", specifier = ">=44.0.0" },
     { name = "fastapi", specifier = ">=0.136.1" },
     { name = "fastmcp", specifier = ">=2.0" },
@@ -320,11 +323,12 @@ requires-dist = [
     { name = "typer", specifier = ">=0.25.1" },
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.47.0" },
 ]
-provides-extras = ["postgres"]
+provides-extras = ["postgres", "shim"]
 
 [package.metadata.requires-dev]
 dev = [
     { name = "atlas-provider-sqlalchemy", specifier = ">=0.5.0" },
+    { name = "cantica-secure", editable = "../cantica-secure/python" },
     { name = "mypy", specifier = ">=1.0" },
     { name = "pytest", specifier = ">=9.0.3" },
     { name = "pytest-asyncio", specifier = ">=0.24" },

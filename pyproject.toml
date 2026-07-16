@@ -21,7 +21,6 @@ dependencies = [
     "typer>=0.25.1",
     "uvicorn[standard]>=0.47.0",
     "fastmcp>=2.0",
-    "cantica-secure>=0.1",
 ]
 
 [project.scripts]
@@ -31,6 +30,11 @@ cantica = "cantica.cli:app"
 postgres = [
     "psycopg2-binary>=2.9.12",
 ]
+# Cantica Secure is only required when CANTICA_SECURITY_SHIM is on; keep it out
+# of the base image (the flag-off path imports nothing from it).
+shim = [
+    "cantica-secure>=0.1",
+]
 
 [build-system]
 requires = ["uv_build>=0.10.12,<0.11.0"]
@@ -38,6 +42,9 @@ build-backend = "uv_build"
 
 [dependency-groups]
 dev = [
+    # Present in dev/CI so both the flag-off and flag-on (shim) suites run;
+    # excluded from the base runtime install (see the "shim" extra).
+    "cantica-secure>=0.1",
     "pytest>=9.0.3",
     "pytest-asyncio>=0.24",
     "pytest-cov>=7.1.0",
